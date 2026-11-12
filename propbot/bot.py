@@ -182,35 +182,73 @@ def settle(live: bool = False, log=print) -> int:
 
 
 # ----------------------------------------------------------------------------- model vs. the actual market
-def settled_quotes(cfg: dict, frame: pd.DataFrame, min_volume: float = 25, log=print) -> pd.DataFrame:
-    """Settled prop markets for this season with their last pre-kickoff bid/ask (cached on disk)."""
+def settled_quotes(cfg: dict, frame: pd.DataFrame, min_volume: float = 25, log=print, refresh: bool = False) -> pd.DataFrame:
+    """Every settled prop market Kalshi has published (recent + archive endpoints) with its last
+    pre-kickoff bid/ask. `frame` must hold the played games of all seasons to cover. Cached on disk;
+    only tickers that are not in the cache yet are downloaded."""
     cache = DATA / "kalshi_settled.parquet"
-    if cache.exists():
-        return pd.read_parquet(cache)
+    old = pd.read_parquet(cache) if cache.exists() else pd.DataFrame()
+    if len(old) and not refresh:
+        return old
     client = Kalshi("prod")
-    mk = pd.concat([parse(client.markets(s, "settled")) for s in cfg["kalshi"]["series"]], ignore_index=True)
+    raw = []
+    for s in cfg["kalshi"]["series"]:
+        raw += client.markets(s, "settled") + client.historical_markets(s)
+    mk = parse(raw).drop_duplicates("ticker")
+    log(f"  {len(mk)} settled prop markets listed")
+    if len(old):
+        mk = mk[~mk["ticker"].isin(old["ticker"])]
     mk = attach_players(mk, frame)
-    kick = frame.drop_duplicates("game_id").set_index("game_id")["kickoff"].dt.tz_localize(ET).dt.tz_convert("UTC")
+    kick = frame.drop_duplicates("game_id").set_index("game_id")["kickoff"].dt.tz_localize(ET, ambiguous="NaT", nonexistent="NaT") \
+        .dt.tz_convert("UTC")
     epoch = pd.Timestamp("1970-01-01", tz="UTC")
     secs = lambda t: (t - epoch) // pd.Timedelta("1s")
     mk = mk[mk["player_id"].notna() & mk["game_id"].notna()].copy()
     mk["kick_ts"] = secs(mk["game_id"].map(kick))
-    mk = mk[mk["result"].isin(["yes", "no"]) & (mk["volume"] >= min_volume) &
-            (secs(pd.to_datetime(mk["open_time"], utc=True)) < mk["kick_ts"])].copy()
-    log(f"  {len(mk)} settled markets with volume >= {min_volume} that were open before kickoff; pulling quotes")
+    mk = mk[mk["result"].isin(["yes", "no"]) & (mk["volume"] >= min_volume) & mk["kick_ts"].notna() &
+            (secs(pd.to_datetime(mk["open_time"], utc=True, format="ISO8601")) < mk["kick_ts"])].copy()
+    log(f"  {len(mk)} new settled markets with volume >= {min_volume} that were open before kickoff; pulling quotes")
+    def last_quote(arr, ts):
+        px = lambda c, side: (c.get(side) or {}).get("close_dollars") or (c.get(side) or {}).get("close")
+        arr = [c for c in arr if c["end_period_ts"] <= ts and px(c, "yes_bid") and px(c, "yes_ask")]
+        if not arr:
+            return None
+        c = arr[-1]
+        return (float(px(c, "yes_bid")), float(px(c, "yes_ask")), float(c.get("volume_fp") or c.get("volume") or 0),
+                int(c["end_period_ts"]))
+
     q = {}
     for ts, g in mk.groupby("kick_ts"):
-        cs = client.candles(list(g["ticker"]), int(ts) - 6 * 3600, int(ts), 60)
-        for tk, arr in cs.items():
-            arr = [c for c in arr if c["end_period_ts"] <= ts and c.get("yes_bid", {}).get("close_dollars")
-                   and c.get("yes_ask", {}).get("close_dollars")]
-            if arr:
-                c = arr[-1]
-                q[tk] = (float(c["yes_bid"]["close_dollars"]), float(c["yes_ask"]["close_dollars"]))
-    mk["yes_bid"] = mk["ticker"].map(lambda t: q.get(t, (np.nan, np.nan))[0])
-    mk["yes_ask"] = mk["ticker"].map(lambda t: q.get(t, (np.nan, np.nan))[1])
+        for tk, arr in client.candles(list(g["ticker"]), int(ts) - 6 * 3600, int(ts), 60).items():
+            if (v := last_quote(arr, ts)) is not None:
+                q[tk] = v
+    # archived markets are not served by the batch endpoint: fetch them one by one, a few at a time
+    rest = mk[~mk["ticker"].isin(q)]
+    if len(rest):
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        log(f"  {len(rest)} of them are archived; pulling those one ticker at a time")
+        local = threading.local()
+
+        def one(a):
+            tk, ts = a
+            if not hasattr(local, "c"):
+                local.c = Kalshi("prod")
+            try:
+                return tk, last_quote(local.c.historical_candles(tk, int(ts) - 6 * 3600, int(ts), 60), ts)
+            except KalshiError:
+                return tk, None
+
+        with ThreadPoolExecutor(3) as ex:
+            for tk, v in ex.map(one, zip(rest["ticker"], rest["kick_ts"])):
+                if v is not None:
+                    q[tk] = v
+    nan4 = (np.nan, np.nan, np.nan, np.nan)
+    for i, col in enumerate(["yes_bid", "yes_ask", "last_candle_volume", "quote_ts"]):
+        mk[col] = mk["ticker"].map(lambda t: q.get(t, nan4)[i])
     mk = mk.dropna(subset=["yes_bid", "yes_ask"])
     mk["no_ask"] = 1 - mk["yes_bid"]; mk["no_bid"] = 1 - mk["yes_ask"]
+    mk = pd.concat([old, mk], ignore_index=True) if len(old) else mk
     mk.to_parquet(cache)
     return mk
 

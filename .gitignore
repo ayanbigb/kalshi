@@ -10,3 +10,4 @@ models/
 reports/*.parquet
 reports/*.log
 .DS_Store
+reports/exp_*

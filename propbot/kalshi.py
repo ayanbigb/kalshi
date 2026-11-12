@@ -59,7 +59,7 @@ class Kalshi:
     # ---- transport
     def _req(self, method: str, path: str, params=None, body=None, auth=False):
         path = PREFIX + path
-        for attempt in range(5):
+        for attempt in range(9):
             wait = 0.12 - (time.time() - self._last)  # stay well under the basic read limit
             if wait > 0:
                 time.sleep(wait)
@@ -68,12 +68,12 @@ class Kalshi:
                 r = self.s.request(method, self.host + path, params=params, json=body, timeout=30,
                                    headers=self._headers(method, path) if auth else None)
             except requests.RequestException as e:
-                if attempt == 4:
+                if attempt == 8:
                     raise KalshiError(str(e))
                 time.sleep(1 + attempt)
                 continue
             if r.status_code == 429 or r.status_code >= 500:
-                time.sleep(1.5 * (attempt + 1))
+                time.sleep(min(60.0, 1.5 * 2 ** attempt))  # rate limited: back off hard, the archive pulls are long
                 continue
             if r.status_code >= 400:
                 raise KalshiError(f"{r.status_code} {method} {path}: {r.text[:300]}")
@@ -95,6 +95,10 @@ class Kalshi:
     def markets(self, series_ticker: str, status: str = "open", **extra) -> list[dict]:
         return self._paged("/markets", "markets", dict(series_ticker=series_ticker, status=status, limit=1000, **extra))
 
+    def historical_markets(self, series_ticker: str) -> list[dict]:
+        """Markets settled before Kalshi's archive cutoff (GET /historical/cutoff) live on a separate endpoint."""
+        return self._paged("/historical/markets", "markets", dict(series_ticker=series_ticker, limit=1000), max_pages=2000)
+
     def market(self, ticker: str) -> dict:
         return self._req("GET", f"/markets/{ticker}")["market"]
 
@@ -110,6 +114,11 @@ class Kalshi:
             for m in d.get("markets", []):
                 out[m.get("market_ticker")] = m.get("candlesticks", [])
         return out
+
+    def historical_candles(self, ticker: str, start_ts: int, end_ts: int, interval_min: int = 60) -> list:
+        """Candles of an archived market (one ticker per call; prices come without the `_dollars` suffix)."""
+        return self._req("GET", f"/historical/markets/{ticker}/candlesticks",
+                         params=dict(start_ts=start_ts, end_ts=end_ts, period_interval=interval_min)).get("candlesticks", [])
 
     # ---- authenticated
     def balance(self) -> float:
