@@ -72,7 +72,7 @@ def matchup(frame: pd.DataFrame, raw: dict, name: str, model=None, out=print):
                             ("opp_u_lb_ypt", "LB yards/target allowed", False), ("opp_u_cb1_ypt", "top CB yards/target", False),
                             ("opp_u_db_tdr", "DB TD rate allowed", False), ("opp_u_press_pg", "front pressures/game", True),
                             ("opp_u_def_mtk", "missed-tackle rate", False),
-                            ("opp_pa_rec_yds_e5", f"rec yds allowed to {r['position']}s (EWM)", False),
+                            ("pa_rec_yds_e5", f"rec yds allowed to {r['position']}s (EWM)", False),
                             ("opp_pts_allowed_e5", "points allowed (EWM)", False)):
         if col in r.index:
             out(f"  {lab:34s} {r[col]:7.2f}   tougher than {_pct(tgh, col, r[col], tough)} of defenses")

@@ -1,4 +1,24 @@
-# propbot — project handoff (state as of 2026-11-12)
+# propbot — project handoff (state as of 2026-11-12, session 2)
+
+## Session 2 additions (see README "Matchup and context features" and "Combos")
+- New modules: `weather.py`, `context.py`, `defense.py`, `combos.py`, `report.py`. Frame is now ~340 cols.
+- New CLI: `matchup <player>`, `combos [--same-game --team X --max-legs N --yes-only]`, `fit-copula`,
+  `combo-backtest`, `weather-backfill`.
+- Models retrained through 2026 wk 9 with backtest seasons 2024-26 (faster). Walk-forward logloss:
+  pass_yds .347 (naive .354), pass_att .459 (.466), pass_comp .392 (.399), rush_yds .125 (.139),
+  rec .190 (.198), rec_yds .218 (.228), td .172 (.180); pass_tds/pass_int still ~= naive.
+  New matchup features are roughly neutral overall — no big jump; treat them as context, not magic.
+- Copula (models/copula.json) vs independence on unseen 2026 same-game combos: logloss 3-leg .346 -> .341,
+  4-leg .214 -> .209 (reports/combo_backtest.json).
+- Historical weather backfill only got ~330 games before Open-Meteo rate limits; history otherwise uses the
+  schedule's temp/wind. Run `weather-backfill` (resumable) then `train` to give gusts/rain/snow full history.
+  Open-Meteo's forecast quota is shared by the egress IP and was exhausted on 2026-11-12; the scan then
+  proceeds without weather.
+- Live scan 2026-11-12: 4,014 open markets, 99% matched. The model sits ~2-3 pts below the market on overs
+  across most stats, so suggested combos lean toward NO/under legs. Unverified whether that's market over-bias
+  or model miscalibration in 2026 — check with `market-backtest` once weeks 10+ settle.
+- Combo quotes come via RFQ; `combos.hold` (10%) is a guess. No combo order code exists — build in the app.
+
 
 Kalshi NFL player-prop model + trading bot. Python 3.13, venv at `.venv/`. Run everything as
 `.venv/bin/python -m propbot <command>`. Nothing is committed to git yet (repo has no commits).

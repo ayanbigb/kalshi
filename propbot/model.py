@@ -29,8 +29,7 @@ warnings.filterwarnings("ignore")
 K_FEATS = ["k", "k_minus_mu", "k_log_ratio", "k_z", "mu"]
 N_STAGE2_FEATS = 36
 ALWAYS = ["pos_code", "games_career", "spread", "implied_total", "total_line", "is_home", "indoors", "wind",
-          "inj_questionable", "inj_practice", "offense_pct_e2", "offense_pct_sd8", "vac_tgt", "vac_carry", "qb_changed",
-          "wx_gust", "wx_precip"]
+          "inj_questionable", "inj_practice", "offense_pct_e2", "offense_pct_sd8", "vac_tgt", "vac_carry", "qb_changed"]
 
 
 def rows_for(df: pd.DataFrame, stat: str, future: bool = False) -> pd.Series:
@@ -53,7 +52,7 @@ def fit_mean(d: pd.DataFrame, stat: str, feats: list[str]) -> lgb.LGBMRegressor:
     small = len(d) < 8000  # QB-only stats have ~550 rows a season
     params = dict(objective=s["obj"], n_estimators=350 if small else 500, learning_rate=0.03,
                   num_leaves=15 if small else 31, min_child_samples=40 if small else 80, subsample=0.8,
-                  subsample_freq=1, colsample_bytree=0.5, reg_lambda=10.0, n_jobs=6, verbose=-1)
+                  subsample_freq=1, colsample_bytree=0.5, reg_lambda=10.0, n_jobs=4, verbose=-1)
     if s["obj"] == "tweedie":
         params["tweedie_variance_power"] = 1.3
     m = lgb.LGBMRegressor(**params)
@@ -84,7 +83,7 @@ def fit_ladder(X: pd.DataFrame, y: np.ndarray, w: np.ndarray, feats2: list[str])
     m = lgb.LGBMClassifier(objective="binary", n_estimators=250 if small else 400, learning_rate=0.04,
                            num_leaves=15 if small else 47, min_child_samples=150 if small else 400,
                            subsample=0.7, subsample_freq=1, colsample_bytree=0.6, reg_lambda=20.0,
-                           monotone_constraints=mono, n_jobs=6, verbose=-1)
+                           monotone_constraints=mono, n_jobs=4, verbose=-1)
     m.fit(X[cols], y, sample_weight=w)
     return m
 
@@ -109,7 +108,8 @@ def _ece(y, p, bins=10) -> float:
 
 
 # ----------------------------------------------------------------------------- training
-def train(df: pd.DataFrame, backtest: bool = True, log=print) -> dict:
+def train(df: pd.DataFrame, backtest: bool = True, log=print, backtest_seasons: list[int] | None = None) -> dict:
+    bts = backtest_seasons or BACKTEST_SEASONS
     feats = feature_columns(df)
     hist = df[~df["is_future"]]
     last = int(hist["season"].max())
@@ -127,7 +127,7 @@ def train(df: pd.DataFrame, backtest: bool = True, log=print) -> dict:
                 continue
             m1 = fit_mean(d[tr], stat, feats)
             mu[te.to_numpy()] = m1.predict(d.loc[te, feats])
-            if S == BACKTEST_SEASONS[0]:  # choose stage-2 context features without touching test seasons
+            if S == bts[0]:  # choose stage-2 context features without touching test seasons
                 imp = pd.Series(m1.booster_.feature_importance("gain"), index=feats).sort_values(ascending=False)
                 feats2 = list(dict.fromkeys([f for f in ALWAYS if f in feats] + list(imp.index)))[:N_STAGE2_FEATS]
         ok = ~np.isnan(mu)
@@ -139,7 +139,7 @@ def train(df: pd.DataFrame, backtest: bool = True, log=print) -> dict:
         # ---- walk-forward backtest of the ladder model
         if backtest:
             parts = []
-            for T in BACKTEST_SEASONS:
+            for T in bts:
                 tr, te = seas < T, seas == T
                 if not te.any() or tr.sum() < 500:
                     continue

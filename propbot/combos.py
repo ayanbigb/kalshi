@@ -169,6 +169,8 @@ def candidate_legs(px: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     if cfg["risk"].get("skip_questionable", True):
         d = d[d["inj_questionable"].fillna(0) < 1]
     d = d[d["spread"] <= c.get("max_leg_spread", 0.10)]
+    # a big model/market gap usually means news the model hasn't seen (injury, role change), not edge
+    d = d[(d["p_model"] - d["p_market"]).abs() <= c.get("max_disagreement", cfg["risk"]["max_disagreement"])]
     d = d[~d["stat"].isin(c.get("exclude_stats", []))]
     yes = d.assign(side="yes", p_leg=d["p_final"], p_mkt=d["p_market"])
     no = d.assign(side="no", p_leg=1 - d["p_final"], p_mkt=1 - d["p_market"])

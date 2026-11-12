@@ -174,6 +174,10 @@ Questionable defender counts as half-missing.
    each leg count, a diverse shortlist, and for the top combos what swapping each leg to another rung
    does (e.g. 60+ vs 80+).
 
+On games it never saw (2026), the correlation model prices random same-game combos better than treating
+legs as independent (log loss 0.346 → 0.341 for 3 legs, 0.214 → 0.209 for 4; `combo-backtest`).
+Legs must pass the same model/market disagreement gate as single bets.
+
 Combo prices come from market makers on request (RFQ), and Kalshi doesn't publish them, so `hold` in
 `config.yaml` is an assumption. Build the combo in the app and compare the quote to "accept up to".
 The edge of a combo is mostly the product of its legs' edges, so it is only as good as the leg model;

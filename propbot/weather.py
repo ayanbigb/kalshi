@@ -100,7 +100,11 @@ def haversine_km(lat1, lon1, lat2, lon2):
 
 
 # ----------------------------------------------------------------------------- fetching
-def _get(url: str, params: dict, tries: int = 6) -> dict | None:
+class QuotaExceeded(RuntimeError):
+    pass
+
+
+def _get(url: str, params: dict, tries: int = 4) -> dict | None:
     for i in range(tries):
         try:
             r = requests.get(url, params=params, timeout=30)
@@ -108,7 +112,9 @@ def _get(url: str, params: dict, tries: int = 6) -> dict | None:
             time.sleep(2 + 2 * i)
             continue
         if r.status_code == 429:
-            time.sleep(10 * (i + 1))
+            if "Daily" in r.text or "Hourly" in r.text:  # quota gone: retrying only wastes time
+                raise QuotaExceeded(r.text[:120])
+            time.sleep(5 * (i + 1))
             continue
         if r.ok:
             return r.json()
@@ -187,8 +193,12 @@ def forecast(sched: pd.DataFrame, days: int = 16, log=print) -> pd.DataFrame:
            & (g["kickoff"] < now + pd.Timedelta(days=days))]
     rows = []
     for (lat, lon), grp in up.groupby(["v_lat", "v_lon"]):
-        h = _hourly(_get("https://api.open-meteo.com/v1/forecast", dict(
-            latitude=lat, longitude=lon, hourly=HOURLY, forecast_days=16, **UNITS)))
+        try:
+            h = _hourly(_get("https://api.open-meteo.com/v1/forecast", dict(
+                latitude=lat, longitude=lon, hourly=HOURLY, forecast_days=16, **UNITS)))
+        except QuotaExceeded as e:
+            log(f"  [weather] forecast quota exhausted ({e}); upcoming games get no weather this run")
+            break
         for gid, k in zip(grp["game_id"], grp["kickoff"]):
             s = _summarise(h, k) if len(h) else {}
             if s:
@@ -200,21 +210,20 @@ def forecast(sched: pd.DataFrame, days: int = 16, log=print) -> pd.DataFrame:
     return out
 
 
-def game_weather(sched: pd.DataFrame, refresh: bool = False, online: bool = True, log=print) -> pd.DataFrame:
+def game_weather(sched: pd.DataFrame, refresh: bool = False, online: bool = True, backfill: bool = False,
+                 log=print) -> pd.DataFrame:
     """One row per game with WX_COLS (+ venue). Indoor games get neutral values; history falls back to
     the schedule's own temp/wind when the archive has nothing."""
     g = _games(sched)[["game_id", "season", "kickoff", "indoor", "temp", "wind", "v_lat", "v_lon", "v_elev"]]
-    parts = []
+    p = RAW / "weather_hist.parquet"
+    parts = [pd.read_parquet(p)] if p.exists() else []
     if online:
         try:
-            parts.append(history(sched, refresh, log))
+            if backfill:  # slow (one request per stadium-month); run `propbot weather-backfill`
+                parts.append(history(sched, refresh, log))
             parts.append(forecast(sched, log=log))
         except Exception as e:  # weather is optional: never take training/scanning down
             log(f"  [weather] unavailable: {type(e).__name__}: {e}")
-    else:
-        p = RAW / "weather_hist.parquet"
-        if p.exists():
-            parts.append(pd.read_parquet(p))
     wx = pd.concat([p for p in parts if len(p)], ignore_index=True).drop_duplicates("game_id", keep="last") \
         if any(len(p) for p in parts) else pd.DataFrame(columns=["game_id"] + WX_COLS)
     out = g.merge(wx, on="game_id", how="left")

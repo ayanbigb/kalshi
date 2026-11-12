@@ -62,6 +62,13 @@ def cmd_combo_backtest(a):
     print(json.dumps(combos.backtest_copula(oos, a.test_from, a.n), indent=1))
 
 
+def cmd_weather_backfill(a):
+    from . import weather
+    from .data import load
+    h = weather.history(load("schedules"))
+    print(f"{len(h)} games with archived weather in data/raw/weather_hist.parquet")
+
+
 def cmd_matchup(a):
     from .model import PropModel
     from .report import matchup
@@ -232,6 +239,7 @@ def main():
     s.add_argument("--team"); s.add_argument("--player", help="only games involving this player")
     s.add_argument("--rescan", action="store_true"); s.add_argument("--max-age", type=float, default=30, help="minutes a saved scan stays usable")
     s.set_defaults(f=cmd_combos)
+    sub.add_parser("weather-backfill", help="download historical game weather (slow, resumable)").set_defaults(f=cmd_weather_backfill)
     sub.add_parser("fit-copula", help="re-fit leg correlations from out-of-sample residuals").set_defaults(f=cmd_fit_copula)
     s = sub.add_parser("combo-backtest", help="does the correlation model price combos better than independence?")
     s.add_argument("--test-from", type=int, default=2025); s.add_argument("-n", type=int, default=6000); s.set_defaults(f=cmd_combo_backtest)
