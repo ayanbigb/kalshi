@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+*.pem
+*.key
+KILL
+data/
+models/
+reports/*.parquet
+reports/*.log
+.DS_Store

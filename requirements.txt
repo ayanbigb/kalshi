@@ -1,0 +1,12 @@
+nflreadpy
+polars
+pandas
+pyarrow
+numpy
+scikit-learn
+lightgbm
+joblib
+requests
+cryptography
+pyyaml
+python-dotenv

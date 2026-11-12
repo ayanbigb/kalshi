@@ -1,0 +1,12 @@
+# Overrides for propbot/config.py DEFAULTS. Anything omitted keeps its default.
+kalshi:
+  env: prod            # prod | demo  (where LIVE orders go; quotes always come from prod)
+model:
+  market_weight: 0.7   # 0 = trust the model completely, 1 = never disagree with the market
+  book_weight: 0.5     # how hard sportsbook lines pull the model (needs ODDS_API_KEY)
+risk:
+  bankroll: 500        # paper bankroll in dollars
+  kelly_fraction: 0.20
+  min_edge: 0.025      # dollars of expected profit per contract, after fees
+  max_stake_per_trade: 25
+  daily_loss_limit: 75
