@@ -60,6 +60,9 @@ ROLL = STAT_COLS + PBP_PLAYER_COLS + DERIVED + EXTRA
 L1 = ["offense_pct", "targets", "carries", "attempts", "receiving_yards", "rushing_yards", "passing_yards", "td"]
 MAIN = ["passing_yards", "attempts", "completions", "passing_tds", "rushing_yards", "carries", "receptions",
         "receiving_yards", "targets", "td", "rr_yds", "offense_pct"]
+# recorded after the fact in the schedule file and blank for upcoming games: a model trained on them would
+# see something at scan time that it never saw in training (they were worth ~0.001 log-loss in the backtest)
+NOT_KNOWN_PREGAME = ["temp", "wind"]
 ID_COLS = ["player_id", "name", "position", "team", "opp", "game_id", "season", "week", "kickoff",
            "is_future", "is_primary_qb"]
 
@@ -444,12 +447,6 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
         b[f"{share}_norm"] = sh_ / tot.replace(0, np.nan)
         b[f"{share}_present"] = tot
         b[f"exp_{out}"] = b[f"{share}_norm"] * b[vol]
-    # the same split seen through expert ranks: a player's weight among his position mates who are available
-    inv = (1.0 / b["ecr_ros"]).fillna(0.0)
-    tot = inv.groupby([b["game_id"], b["team"], b["posg"]]).transform("sum")
-    b["ecr_pos_share"] = (inv / tot.replace(0, np.nan)).where(b["ecr_ros"].notna())
-    b["ecr_team_rank"] = b.groupby(["game_id", "team", "posg"])["ecr_ros"].rank(method="min")
-    b["ecr_team_best"] = b.groupby(["game_id", "team", "posg"])["ecr_ros"].transform("min")
     b["snap_rank_pos"] = b.groupby(["game_id", "team", "posg"])["offense_pct_e6"].rank(ascending=False, method="min")
     b["tgt_rank_team"] = b.groupby(["game_id", "team"])["targets_e6"].rank(ascending=False, method="min")
     b["carry_rank_team"] = b.groupby(["game_id", "team"])["carries_e6"].rank(ascending=False, method="min")
@@ -487,7 +484,7 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
     qcols = ["attempts_e6", "passing_yards_e6", "passing_tds_e6", "passing_epa_e6", "passing_cpoe_e6",
              "ypa_e6", "games_career", "attempts_e2", "passing_yards_e2", "xpass_yds_e6", "xpass_td_e6",
              "ngs_p_iay_e6", "ngs_ttt_e6", "ngs_aggr_e6", "scrambles_e6", "comp_pct_e6", "sack_rate_e6",
-             "pressure_rate_e6", "bad_throw_rate_e6", "passing_air_yards_e6", "ecr_wk", "ecr_ros"]
+             "pressure_rate_e6", "bad_throw_rate_e6", "passing_air_yards_e6"]
     Q = b.loc[b["is_primary_qb"], ["game_id", "team", "player_id"] + qcols].drop_duplicates(["game_id", "team"])
     Q.columns = ["game_id", "team", "qb_id"] + [f"qb_{c}" for c in qcols]
     b = b.merge(Q, on=["game_id", "team"], how="left")
@@ -546,7 +543,7 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
 def feature_columns(df: pd.DataFrame) -> list[str]:
     """Everything that is known pre-game (i.e. not an identifier and not a same-game outcome)."""
     outcomes = set(STAT_COLS + PBP_PLAYER_COLS + DERIVED + EXTRA + ["td", "rr_yds"])
-    drop = outcomes | set(ID_COLS) | {"qb_id"} | set(history_columns(df))
+    drop = outcomes | set(ID_COLS) | {"qb_id"} | set(history_columns(df)) | set(NOT_KNOWN_PREGAME)
     return [c for c in df.columns if c not in drop and pd.api.types.is_numeric_dtype(df[c])]
 
 

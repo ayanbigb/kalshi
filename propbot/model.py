@@ -76,7 +76,7 @@ OPTS = dict(
     disp=True,              # stage 1b spread model
     emp=True,               # per-strike historical hit rates
     use_sd=True,            # let the ladder model see the stage 1b spread
-    bags=1,                 # ladder models averaged (different seeds)
+    bags=3,                 # ladder models averaged (different seeds)
     focus=False,            # train + calibrate the ladder only on market-like rows (see FOCUS)
     split_weeks=(1,),       # a backtest season is cut into blocks starting at these weeks; each block is
                             # predicted by models fitted on everything before it

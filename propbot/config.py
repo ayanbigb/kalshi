@@ -61,6 +61,9 @@ DEFAULTS = {
     "model": {
         "market_weight": 0.7,         # shrink model prob toward the market mid (0 = trust model fully)
         "book_weight": 0.5,           # if sportsbook props are available, weight on de-vigged book prob
+        "learned_blend": False,       # use models/blend.json instead of market_weight. Off: over 2025-26 the
+                                      # fixed weight beat the learned one walk-forward (see RESEARCH.md)
+        "blend_ridge": 3000.0,        # shrinkage of the learned blend toward market_weight
     },
     "risk": {
         "bankroll": 500.0,            # paper bankroll; live mode reads the real balance

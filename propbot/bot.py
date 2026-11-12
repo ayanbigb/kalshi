@@ -65,12 +65,13 @@ def price_markets(mk: pd.DataFrame, frame: pd.DataFrame, model: PropModel, book:
 
 
 def final_prob(p_model, p_market, stat, cfg: dict, beta=None) -> np.ndarray:
-    """Model + market -> the probability the bot trades on. Uses the learned blend (models/blend.json, written
-    by `market-backtest`) when there is one, else the fixed `market_weight` from the config."""
-    beta = blender.load() if beta is None else beta
-    if beta is None or not cfg["model"].get("learned_blend", True):
-        return blend(p_model, p_market, cfg["model"]["market_weight"])
-    return blender.apply(beta, p_model, p_market, stat)
+    """Model + market -> the probability the bot trades on: the fixed `market_weight` blend, or with
+    `learned_blend: true` the per-stat blend that `market-backtest` writes to models/blend.json."""
+    if cfg["model"].get("learned_blend", False):
+        beta = blender.load() if beta is None else beta
+        if beta is not None:
+            return blender.apply(beta, p_model, p_market, stat)
+    return blend(p_model, p_market, cfg["model"]["market_weight"])
 
 
 def add_edges(px: pd.DataFrame, cfg: dict, now: pd.Timestamp | None = None, p_final=None) -> pd.DataFrame:
@@ -339,7 +340,7 @@ def market_backtest(min_volume: float = 25, log=print, refresh: bool = False, oo
     # learn the blend on tradeable quotes only: a 21c/78c market has no price to learn from
     fit_rows = (d["spread"] <= cfg["risk"]["max_spread"]) & d["p_market"].between(0.03, 0.97)
     wf = pd.Series(np.nan, index=d.index)
-    ridge, prior_w = cfg["model"].get("blend_ridge", 30.0), 1 - cfg["model"]["market_weight"]
+    ridge, prior_w = cfg["model"].get("blend_ridge", 3000.0), 1 - cfg["model"]["market_weight"]
     wf[fit_rows] = blender.walk_forward(d[fit_rows], ridge=ridge, prior_w=prior_w)
     beta = blender.fit(d[fit_rows], ridge=ridge, prior_w=prior_w)
     d["p_fixed"] = fixed
