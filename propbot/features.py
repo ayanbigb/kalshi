@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from . import context, defense
 from .config import FIRST_SEASON, SKILL_POS
 from .data import current_season
 
@@ -142,9 +143,10 @@ def _future_rows(raw: dict, tg: pd.DataFrame, now: pd.Timestamp, horizon_days: i
 
 # ----------------------------------------------------------------------------- main entry
 def build(raw: dict, include_future: bool = True, qb_override: dict | None = None,
-          now: pd.Timestamp | None = None) -> pd.DataFrame:
+          now: pd.Timestamp | None = None, online: bool = True, log=print) -> pd.DataFrame:
     """Return the full modelling frame. `qb_override` maps team -> player_id of the expected
-    starting QB for upcoming games (the scanner derives it from which QB Kalshi lists)."""
+    starting QB for upcoming games (the scanner derives it from which QB Kalshi lists).
+    `online=False` skips weather downloads (uses whatever is cached)."""
     now = now or pd.Timestamp.now(tz="America/New_York").tz_localize(None)
     tg = team_games(raw["schedules"])
     rec, rush, off, dfn = _pbp_aggregates(raw["pbp"])
@@ -304,6 +306,12 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
     b["exp"] = b["season"] - b["rookie_season"]
     b["pos_code"] = b["position"].map(POS_CODE).astype(float)
     b = b.drop(columns=["birth_date", "rookie_season", "report_status", "practice_status", "posg"])
+
+    # ---- record, vs-opponent / vs-coach history, referee, schedule spot, travel, weather (context.py)
+    b = context.add_context(b, tg, raw["schedules"][raw["schedules"]["season"] >= FIRST_SEASON], online=online, log=log)
+    # ---- opposing defenders, their coverage / pass-rush quality, who is missing, own OL health,
+    #      and this player's history against those specific defenders (defense.py)
+    b = defense.add_defense(b, raw, tg, current_season(), log=log)
     return b.sort_values(["kickoff", "game_id", "team", "player_id"]).reset_index(drop=True)
 
 
@@ -311,4 +319,5 @@ def feature_columns(df: pd.DataFrame) -> list[str]:
     """Everything that is known pre-game (i.e. not an identifier and not a same-game outcome)."""
     outcomes = set(STAT_COLS + PBP_PLAYER_COLS + DERIVED + ["td", "rr_yds"])
     drop = outcomes | set(ID_COLS) | {"qb_id"}
-    return [c for c in df.columns if c not in drop and pd.api.types.is_numeric_dtype(df[c])]
+    return [c for c in df.columns if c not in drop and not c.startswith("res_")
+            and pd.api.types.is_numeric_dtype(df[c])]

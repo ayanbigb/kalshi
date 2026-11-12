@@ -29,7 +29,8 @@ warnings.filterwarnings("ignore")
 K_FEATS = ["k", "k_minus_mu", "k_log_ratio", "k_z", "mu"]
 N_STAGE2_FEATS = 36
 ALWAYS = ["pos_code", "games_career", "spread", "implied_total", "total_line", "is_home", "indoors", "wind",
-          "inj_questionable", "inj_practice", "offense_pct_e2", "offense_pct_sd8", "vac_tgt", "vac_carry", "qb_changed"]
+          "inj_questionable", "inj_practice", "offense_pct_e2", "offense_pct_sd8", "vac_tgt", "vac_carry", "qb_changed",
+          "wx_gust", "wx_precip"]
 
 
 def rows_for(df: pd.DataFrame, stat: str, future: bool = False) -> pd.Series:

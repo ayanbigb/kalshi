@@ -83,6 +83,10 @@ python -m propbot report            # backtest metrics
 python -m propbot market-backtest   # model vs real Kalshi pre-kickoff quotes this season
 python -m propbot project --team WAS   # projections for the upcoming slate
 python -m propbot scan              # price every open prop market, show what passes the gates
+python -m propbot matchup "Smith-Njigba"   # every factor for one player's next game
+python -m propbot combos            # suggest multi-leg combos: how many legs, which rung of each ladder
+python -m propbot combos --same-game --team SEA --max-legs 4
+python -m propbot combo-backtest    # does the correlation model beat "legs are independent"?
 python -m propbot run               # scan + risk engine + PAPER orders
 python -m propbot run --loop 15     # same, every 15 minutes
 python -m propbot settle            # settle finished positions
@@ -128,10 +132,56 @@ Before that:
    never been executed.** Verify YES/NO side mapping on demo first.
 3. Start with small caps in `config.yaml`.
 
+## Matchup and context features
+
+Added on top of the original ~250 columns (all computed from games before kickoff):
+
+| Group | Features | Module |
+|---|---|---|
+| History vs opponent | prior games vs this franchise, and his average over/under-performance vs his own rolling average in them (rec yds, rec, rush yds, carries, targets, pass yds, TDs), shrunk toward 0 for small samples; playing a former team | `context.py` |
+| History vs coach | same split against the opposing head coach (follows coaches across teams); own head coach new this season | `context.py` |
+| Opposing defenders | the defenders expected to play (snap counts + roster + injury report), weighted by expected snap share: CB / S / LB yards-per-target and completion % allowed, top corner, DB TD rate, front pressures per game, missed-tackle rate (PFR advanced defense, 2018+); snap share of regular CB / S / LB / DL who are missing | `defense.py` |
+| Player vs those defenders | his over/under-performance in previous games where each of tonight's defenders was on the field (≥30% of snaps), weighted by how much each will play — DBs for receiving, front for rushing | `defense.py` |
+| Own line | snap share of regular offensive linemen missing | `defense.py` |
+| Team record | season-to-date win% (shrunk), point differential per game, last-3 differential, streak — both teams | `context.py` |
+| Weather | temperature, sustained wind, gusts, rain, snow, humidity for kickoff → +3h at the venue. History from Open-Meteo reanalysis (so the model can learn the effect), upcoming games from the Open-Meteo forecast | `weather.py` |
+| Spot | primetime, early window, Thursday, short week, rest edge vs opponent, travel distance, time-zone shift, west-coast-team-early-kickoff, altitude, referee crew's history vs the closing total | `context.py` |
+
+`matchup` prints all of it for one player, including the list of expected opposing defenders and how he has
+done against each.
+
+Limits: free data doesn't say which corner covered which receiver on a play, so "vs defender" means
+"in games where that defender played". For upcoming games the injury report is all that's known about
+absences (history knows game-day inactives), so scans after Friday's report are more accurate; a
+Questionable defender counts as half-missing.
+
+## Combos
+
+`combos` builds Kalshi multi-leg combos (every leg must hit) from the priced scan.
+
+1. **Correlation model.** Each (player, stat) in a game gets a latent normal variable; all rungs of one
+   ladder share it, so "JSN 80+" can only hit if "JSN 60+" does. Correlations are estimated from
+   out-of-sample residuals (actual − projection, as normal scores) for each pair of roles — same player
+   (rec ↔ rec yds), teammates (QB pass yds ↔ WR rec yds, RB1 ↔ RB2), opponents (shootouts) — and shrunk
+   toward a coarser estimate when the sample is small (`models/copula.json`, fitted by `train`).
+2. **Pricing.** One Monte-Carlo simulation of the slate (40k draws). For every combo:
+   `P(model)` uses our leg probabilities; `fair` uses the market's own leg mids with the same correlations
+   (what a market maker who prices correlation would charge before margin); `independent` is the naive
+   product. The expected quote is `fair × (1 + hold)`; **accept up to** is the highest price that still
+   leaves `min_roi` of expected return.
+3. **Search.** Beam search over YES (over) and NO (under) legs, choosing how many legs and which rung of
+   each ladder, ranked by expected log-bankroll growth at fractional Kelly. Output: the best combo for
+   each leg count, a diverse shortlist, and for the top combos what swapping each leg to another rung
+   does (e.g. 60+ vs 80+).
+
+Combo prices come from market makers on request (RFQ), and Kalshi doesn't publish them, so `hold` in
+`config.yaml` is an assumption. Build the combo in the app and compare the quote to "accept up to".
+The edge of a combo is mostly the product of its legs' edges, so it is only as good as the leg model;
+more legs compound both the edge and the margin.
+
 ## Known gaps
 
 - Sportsbook anchor (`propbot/odds.py`) is untested — no key was available when it was written.
-- No weather forecast for upcoming outdoor games (temp/wind are blank until played).
 - Pre-game only. No in-play pricing, no first-TD-scorer or longest-reception markets.
 - "Protected" (`…PROT`) series are not traded.
 - Rookies and players with fewer than 6 career games are skipped.

@@ -82,6 +82,20 @@ DEFAULTS = {
         "min_minutes_to_kickoff": 5,
         "skip_questionable": True,
     },
+    "combos": {
+        "min_legs": 2, "max_legs": 6,
+        "hold": 0.10,                 # assumed market-maker margin over the correlation-aware fair price
+        "min_roi": 0.10,              # required expected return on a combo at the estimated quote
+        "min_combo_p": 0.04,          # ignore lottery tickets below this joint probability
+        "min_leg_p": 0.25, "max_leg_p": 0.93,
+        "min_leg_edge": 0.0,          # leg must be at least as likely as the market says (log-odds)
+        "max_leg_spread": 0.10,
+        "allow_no": True,             # allow "under" legs (NO side of an N+ market)
+        "same_game_only": False,
+        "rungs_per_ladder": 4, "max_candidates": 70, "beam": 250, "draws": 40000,
+        "max_stake_per_combo": 10.0,
+        "exclude_stats": [],
+    },
 }
 
 

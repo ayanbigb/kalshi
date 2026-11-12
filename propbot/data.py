@@ -38,6 +38,8 @@ def _fetch(name: str, season: int | None) -> pl.DataFrame:
     if name == "pbp":
         df = nfl.load_pbp([season])
         return df.select([c for c in PBP_COLS if c in df.columns])
+    if name == "pfr_def":
+        return nfl.load_pfr_advstats([season], stat_type="def", summary_level="week")
     if name == "schedules":
         return nfl.load_schedules()
     if name == "players":
@@ -84,6 +86,7 @@ def load_all(refresh: bool = False, first: int = FIRST_SEASON) -> dict[str, pd.D
         "snap_counts": load("snap_counts", seasons, refresh),
         "injuries": load("injuries", seasons, refresh),
         "pbp": load("pbp", seasons, refresh),
+        "pfr_def": load("pfr_def", [s for s in seasons if s >= 2018], refresh),
         "rosters_weekly": load("rosters_weekly", [current_season()], refresh),
     }
     return raw

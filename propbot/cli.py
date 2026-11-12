@@ -20,14 +20,94 @@ def cmd_update(a):
     print(f"data refreshed: {len(ps):,} player-weeks, latest = {cur} week {ps.loc[ps['season'] == cur, 'week'].max()}")
 
 
-def cmd_train(a):
+def _frame(refresh: bool = False, max_age_h: float = 6.0):
+    """Feature frame, cached in data/frame.parquet for a few hours (building it takes minutes)."""
+    from .config import DATA
     from .data import load_all
     from .features import build
+    path = DATA / "frame.parquet"
+    raw = load_all(refresh=refresh)
+    if path.exists() and not refresh and time.time() - path.stat().st_mtime < max_age_h * 3600:
+        return pd.read_parquet(path), raw
+    df = build(raw)
+    df.to_parquet(path)
+    return df, raw
+
+
+def cmd_train(a):
     from .model import train
-    df = build(load_all(refresh=a.refresh))
+    df, _ = _frame(refresh=a.refresh, max_age_h=0)
     print(f"training on {len(df):,} player-games x {df.shape[1]} columns")
     train(df, backtest=not a.no_backtest)
     print("models saved to models/ ; backtest in reports/backtest.json")
+    if not a.no_backtest:
+        cmd_fit_copula(a)
+
+
+def cmd_fit_copula(a):
+    from . import combos
+    oos = pd.read_parquet(REPORTS / "oos_predictions.parquet")
+    c = combos.fit_copula(oos)
+    combos.save_copula(c)
+    big = sorted(((k, v) for k, v in c["rho"].items() if "*" not in k and c["n"].get(k, 0) >= 500),
+                 key=lambda t: -abs(t[1]))[:15]
+    print(f"copula fitted on {len(oos):,} out-of-sample rows -> models/copula.json; strongest pairs:")
+    for k, v in big:
+        print(f"  {k:45s} {v:+.2f}  (n={c['n'][k]})")
+
+
+def cmd_combo_backtest(a):
+    from . import combos
+    oos = pd.read_parquet(REPORTS / "oos_predictions.parquet")
+    print(json.dumps(combos.backtest_copula(oos, a.test_from, a.n), indent=1))
+
+
+def cmd_matchup(a):
+    from .model import PropModel
+    from .report import matchup
+    df, raw = _frame(refresh=a.refresh)
+    matchup(df, raw, a.player, PropModel())
+
+
+def cmd_combos(a):
+    from . import combos
+    from .bot import scan
+    cfg = load_config()
+    c = cfg["combos"]
+    if a.max_legs: c["max_legs"] = a.max_legs
+    if a.min_legs: c["min_legs"] = a.min_legs
+    if a.same_game: c["same_game_only"] = True
+    if a.yes_only: c["allow_no"] = False
+    last = REPORTS / "last_scan.parquet"
+    if not a.rescan and last.exists() and time.time() - last.stat().st_mtime < a.max_age * 60:
+        px = pd.read_parquet(last); print(f"using {last.name} ({(time.time() - last.stat().st_mtime) / 60:.0f} min old)")
+    else:
+        px = scan(cfg); px.to_parquet(last)
+    if a.team:
+        t = a.team.upper(); px = px[(px["home"] == t) | (px["away"] == t)]
+    if a.player:
+        keep = px.loc[px["name"].str.contains(a.player, case=False, na=False), "game_id"].unique()
+        px = px[px["game_id"].isin(keep)]
+    res = combos.suggest(px, cfg, top=a.top)
+    if res["combos"].empty:
+        print("no combo clears the edge / ROI thresholds right now"); return
+    print("\nBest combo at each size (how many legs):")
+    b = res["best_by_size"]
+    print(b[["n_legs", "p_model", "p_fair", "p_indep", "est_price", "max_price", "roi", "growth", "stake"]].round(4).to_string(index=False))
+    print("\nShortlist (diverse, ranked by expected log growth):")
+    L = res["legs"]
+    for i, r in enumerate(res["combos"].to_dict("records"), 1):
+        print(f"\n#{i}  {r['n_legs']} legs | P(model) {r['p_model']:.3f}  fair {r['p_fair']:.3f}  independent {r['p_indep']:.3f}"
+              f" | expect quote ~{r['est_price']:.3f}, accept up to {r['max_price']:.3f} | ROI {r['roi']:+.1%}  stake ${r['stake']:.2f}")
+        for j in r["legs"]:
+            l = L.loc[j]
+            print(f"     - {l['label']:55s} p {l['p_leg']:.2f} vs mkt {l['p_mkt']:.2f}   [{l['ticker']} {l['side'].upper()}]")
+        if i <= 3:
+            alts = combos.rung_alternatives(res["pricer"], L, r["legs"], cfg)
+            for alt in sorted(alts, key=lambda d: -d["growth"])[:4]:
+                print(f"       alt: {alt['swap_in']:50s} instead of {alt['swap_out'][:30]:30s} -> P {alt['p_model']:.3f} ROI {alt['roi']:+.1%}")
+    res["combos"].assign(desc=res["combos"]["desc"]).to_csv(REPORTS / "combos.csv", index=False)
+    print("\nsaved reports/combos.csv. Build these in the Kalshi app's combo builder and compare the quote to 'accept up to'.")
 
 
 def cmd_report(a):
@@ -144,6 +224,17 @@ def main():
     s.add_argument("-n", type=int, default=30); s.set_defaults(f=cmd_status)
     s = sub.add_parser("market-backtest", help="model vs real Kalshi pre-kickoff quotes this season")
     s.add_argument("--min-volume", type=float, default=25); s.set_defaults(f=cmd_market_backtest)
+    s = sub.add_parser("matchup", help="every factor for one player's next game (history vs opp, weather, defenders...)")
+    s.add_argument("player"); s.add_argument("--refresh", action="store_true"); s.set_defaults(f=cmd_matchup)
+    s = sub.add_parser("combos", help="suggest multi-leg combos: how many legs and which rung of each ladder")
+    s.add_argument("--top", type=int, default=10); s.add_argument("--max-legs", type=int); s.add_argument("--min-legs", type=int)
+    s.add_argument("--same-game", action="store_true"); s.add_argument("--yes-only", action="store_true")
+    s.add_argument("--team"); s.add_argument("--player", help="only games involving this player")
+    s.add_argument("--rescan", action="store_true"); s.add_argument("--max-age", type=float, default=30, help="minutes a saved scan stays usable")
+    s.set_defaults(f=cmd_combos)
+    sub.add_parser("fit-copula", help="re-fit leg correlations from out-of-sample residuals").set_defaults(f=cmd_fit_copula)
+    s = sub.add_parser("combo-backtest", help="does the correlation model price combos better than independence?")
+    s.add_argument("--test-from", type=int, default=2025); s.add_argument("-n", type=int, default=6000); s.set_defaults(f=cmd_combo_backtest)
     s = sub.add_parser("kill", help="engage (or --off release) the kill switch")
     s.add_argument("--off", action="store_true"); s.add_argument("--cancel", action="store_true", help="also cancel resting live orders")
     s.set_defaults(f=cmd_kill)
