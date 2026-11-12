@@ -7,7 +7,7 @@ import warnings
 import pandas as pd
 import polars as pl
 
-from .config import FIRST_SEASON, RAW, TEAM_FIX
+from .config import DATA, FIRST_SEASON, RAW, TEAM_FIX
 
 warnings.filterwarnings("ignore")
 
@@ -56,6 +56,48 @@ def _fetch(name: str, season: int | None) -> pl.DataFrame:
         return nfl.load_nextgen_stats([season], name[4:]).filter(pl.col("week") > 0)
     if name.startswith("pfr_"):
         return nfl.load_pfr_advstats([season], name[4:], "week")
+    if name == "depth_charts":
+        # two feeds: weekly team depth charts through 2024, daily ESPN snapshots since. Reduce both to
+        # (player, depth_rank) where 1 = starter; the snapshots keep their timestamp instead of a week.
+        df = nfl.load_depth_charts([season])
+        skill = ["QB", "RB", "FB", "WR", "TE"]
+        if "dt" in df.columns:
+            df = df.filter(pl.col("pos_abb").is_in(skill) & pl.col("gsis_id").is_not_null())
+            rank = pl.when(pl.col("pos_abb") == "WR").then((pl.col("pos_rank") - 1) // 3 + 1).otherwise(pl.col("pos_rank"))
+            return df.select(pl.lit(None, dtype=pl.Int32).alias("season"), pl.lit(None, dtype=pl.Int32).alias("week"),
+                             pl.col("team"), pl.col("gsis_id").alias("player_id"), rank.cast(pl.Float64).alias("depth_rank"),
+                             pl.col("dt")).group_by(["season", "week", "team", "player_id", "dt"]).agg(pl.col("depth_rank").min())
+        df = df.filter((pl.col("formation") == "Offense") & pl.col("position").is_in(skill) & pl.col("gsis_id").is_not_null()
+                       & pl.col("week").is_not_null())
+        return df.group_by(["season", "week", "club_code", "gsis_id"]).agg(pl.col("depth_team").cast(pl.Float64).min().alias("depth_rank")) \
+            .select(pl.col("season").cast(pl.Int32), pl.col("week").cast(pl.Int32), pl.col("club_code").alias("team"),
+                    pl.col("gsis_id").alias("player_id"), pl.lit(None, dtype=pl.Utf8).alias("dt"), pl.col("depth_rank"))
+    if name == "ff_rankings":
+        # FantasyPros expert consensus ranks (dynastyprocess archive, 2020+): weekly and rest-of-season
+        # positional ranks with their scrape date. A local copy in data/external/ is used when the download
+        # host is not reachable.
+        local = DATA / "external" / "db_fpecr.parquet"
+        try:
+            df = nfl.load_ff_rankings("all")
+        except Exception:
+            if not local.exists():
+                raise
+            df = pl.read_parquet(local)
+        keep = [f"{k}-{p}" for k in ("weekly", "redraft") for p in ("qb", "rb", "wr", "te")]
+        return df.filter(pl.col("page_type").is_in(keep) & pl.col("ecr_type").is_in(["wp", "rp"])) \
+            .select(pl.col("id").cast(pl.Utf8).alias("fp_id"), "mergename", "pos", "page_type",
+                    pl.col("ecr").cast(pl.Float64), pl.col("sd").cast(pl.Float64), pl.col("best").cast(pl.Float64),
+                    pl.col("worst").cast(pl.Float64), pl.col("scrape_date").cast(pl.Utf8))
+    if name == "ff_playerids":
+        local = DATA / "external" / "db_playerids.csv"
+        try:
+            df = nfl.load_ff_playerids()
+        except Exception:
+            if not local.exists():
+                raise
+            df = pl.read_csv(local, infer_schema_length=0)
+        return df.select(pl.col("fantasypros_id").cast(pl.Utf8).alias("fp_id"), pl.col("gsis_id").cast(pl.Utf8),
+                         pl.col("merge_name").cast(pl.Utf8), pl.col("position").cast(pl.Utf8)).filter(pl.col("gsis_id").is_not_null())
     if name == "schedules":
         return nfl.load_schedules()
     if name == "players":
@@ -108,6 +150,8 @@ def load_all(refresh: bool = False, first: int = FIRST_SEASON) -> dict[str, pd.D
         "rosters_weekly": load("rosters_weekly", [current_season()], refresh),
     }
     for extra in ("ff_opportunity", "ngs_receiving", "ngs_rushing", "ngs_passing",
-                  "pfr_rec", "pfr_rush", "pfr_pass", "pfr_def"):
+                  "pfr_rec", "pfr_rush", "pfr_pass", "pfr_def", "depth_charts"):
         raw[extra] = load(extra, seasons, refresh)
+    raw["ff_rankings"] = load("ff_rankings", refresh=refresh)
+    raw["ff_playerids"] = load("ff_playerids", refresh=refresh)
     return raw

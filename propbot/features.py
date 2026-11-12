@@ -193,6 +193,70 @@ def _extra_player_stats(raw: dict, b: pd.DataFrame) -> pd.DataFrame:
     return b
 
 
+ECR_COLS = ["ecr_wk", "ecr_wk_sd", "ecr_wk_best", "ecr_wk_worst", "ecr_ros", "ecr_ros_sd"]
+
+
+def _expert_ranks(raw: dict, b: pd.DataFrame) -> pd.DataFrame:
+    """Expert consensus positional ranks published before the game: the weekly rank (Friday, so it knows the
+    week's injuries and role changes) and the rest-of-season rank (a slower read on role and talent that also
+    exists before week 1). Only ranks scraped on an earlier day than kickoff are used."""
+    for c in ECR_COLS:
+        b[c] = np.nan
+    r, ids = raw.get("ff_rankings"), raw.get("ff_playerids")
+    if r is None or not len(r) or ids is None or not len(ids):
+        return b
+    ids = ids.dropna(subset=["fp_id", "gsis_id"]).drop_duplicates("fp_id")
+    r = r.merge(ids[["fp_id", "gsis_id"]], on="fp_id", how="left")
+    # players the id table does not know yet (mostly rookies): match on normalised name + position
+    names = b[["player_id", "position"]].drop_duplicates("player_id").merge(
+        raw["players"][["gsis_id", "display_name"]].rename(columns={"gsis_id": "player_id", "display_name": "name"}),
+        on="player_id", how="inner").dropna()
+    key = names["name"].str.lower().str.replace(r"[^a-z ]", "", regex=True).str.replace(r"\s+(jr|sr|ii|iii|iv|v)$", "", regex=True) \
+        + "|" + names["position"].replace({"FB": "RB"})
+    by_name = pd.Series(names["player_id"].to_numpy(), index=key.to_numpy())
+    by_name = by_name[~by_name.index.duplicated(keep=False)]
+    rk = r["mergename"].astype(str).str.replace(r"[^a-z ]", "", regex=True).str.replace(r"\s+(jr|sr|ii|iii|iv|v)$", "", regex=True) \
+        + "|" + r["pos"].astype(str)
+    r["player_id"] = r["gsis_id"].where(r["gsis_id"].notna(), rk.map(by_name))
+    r = r.dropna(subset=["player_id", "ecr"])
+    r["ts"] = pd.to_datetime(r["scrape_date"]).astype("datetime64[ns]")
+    day = b["kickoff"].dt.normalize().astype("datetime64[ns]") - pd.Timedelta(days=1)  # latest usable scrape day
+    left = b[["player_id"]].assign(ts=day, _i=np.arange(len(b))).dropna(subset=["ts"]).sort_values("ts")
+    for kind, tol, cols in (("weekly", 3, {"ecr": "ecr_wk", "sd": "ecr_wk_sd", "best": "ecr_wk_best", "worst": "ecr_wk_worst"}),
+                            ("redraft", 9, {"ecr": "ecr_ros", "sd": "ecr_ros_sd"})):
+        x = r[r["page_type"].str.startswith(kind)].sort_values("ts").drop_duplicates(["player_id", "ts"], keep="last")
+        x = x[["player_id", "ts"] + list(cols)].rename(columns=cols)
+        m = pd.merge_asof(left, x, on="ts", by="player_id", direction="backward", tolerance=pd.Timedelta(days=tol))
+        for c in cols.values():
+            b[c] = pd.Series(m[c].to_numpy(), index=m["_i"].to_numpy()).reindex(np.arange(len(b))).to_numpy()
+    return b
+
+
+def _depth_chart(raw: dict, b: pd.DataFrame) -> pd.DataFrame:
+    """Where the team lists the player on its depth chart going into the game (1 = starter). This is how a
+    role change shows up before the player has any games in the new role."""
+    dc = raw.get("depth_charts")
+    b["depth_rank"] = np.nan
+    if dc is None or not len(dc):
+        return b
+    wk = dc[dc["dt"].isna()].dropna(subset=["season", "week"]).drop_duplicates(["season", "week", "player_id"])
+    if len(wk):
+        wk = wk.assign(season=wk["season"].astype(b["season"].dtype), week=wk["week"].astype(b["week"].dtype))
+        b = b.drop(columns="depth_rank").merge(wk[["season", "week", "player_id", "depth_rank"]],
+                                               on=["season", "week", "player_id"], how="left")
+    snap = dc[dc["dt"].notna()]
+    if len(snap):
+        snap = snap.assign(ts=pd.to_datetime(snap["dt"], utc=True).dt.tz_localize(None).astype("datetime64[ns]")) \
+            .sort_values("ts")[["player_id", "ts", "depth_rank"]].rename(columns={"depth_rank": "dr"})
+        kick = b["kickoff"].dt.tz_localize("America/New_York", ambiguous="NaT", nonexistent="NaT").dt.tz_convert("UTC") \
+            .dt.tz_localize(None).astype("datetime64[ns]") - pd.Timedelta(hours=2)
+        left = b[["player_id"]].assign(ts=kick, _i=np.arange(len(b))).dropna(subset=["ts"]).sort_values("ts")
+        m = pd.merge_asof(left, snap, on="ts", by="player_id", direction="backward", tolerance=pd.Timedelta(days=10))
+        dr = pd.Series(m["dr"].to_numpy(), index=m["_i"].to_numpy()).reindex(np.arange(len(b))).to_numpy()
+        b["depth_rank"] = b["depth_rank"].where(b["depth_rank"].notna(), dr)
+    return b
+
+
 # ----------------------------------------------------------------------------- base frame
 def _base(raw: dict, tg: pd.DataFrame) -> pd.DataFrame:
     ps = raw["player_stats"]
@@ -266,6 +330,8 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
            "opp_implied_total", "abs_spread", "opp_rest", "rest_diff", "kick_hour", "week_num"]
     b = b.merge(tg[ctx], on=["game_id", "team"], how="inner")
     b = _extra_player_stats(raw, b)
+    b = _depth_chart(raw, b)
+    b = _expert_ranks(raw, b)
     b["posg"] = b["position"].map(POS_GROUP)
     b["rr_yds"] = b["rushing_yards"] + b["receiving_yards"]
     team_carries = b.groupby(["game_id", "team"])["carries"].transform("sum")
@@ -294,6 +360,12 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
     b["games_career"] = g.cumcount().astype(float)
     b["games_season"] = b.groupby(key_ps, sort=False).cumcount().astype(float)
     b["days_since_last"] = (b["kickoff"] - g["kickoff"].shift(1)).dt.days.clip(upper=400)
+    b["ecr_wk_vs_ros"] = b["ecr_wk"] - b["ecr_ros"]
+    b["ecr_wk_chg"] = b["ecr_wk"] - g["ecr_wk"].shift(1)
+    b["ecr_ros_chg"] = b["ecr_ros"] - g["ecr_ros"].shift(1)
+    b["ecr_wk_range"] = b["ecr_wk_worst"] - b["ecr_wk_best"]
+    b["depth_listed"] = b["depth_rank"].notna().astype(float)
+    b["depth_rank_chg"] = b["depth_rank"] - g["depth_rank"].shift(1)
     b["team_changed"] = (b["team"] != g["team"].shift(1)).astype(float).where(b["games_career"] > 0)
     hs = [g[HIST_COLS].shift(j).astype(np.float32).add_suffix(f"_h{j}") for j in range(1, HIST + 1)]
     b = pd.concat([b] + hs, axis=1)
@@ -372,6 +444,12 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
         b[f"{share}_norm"] = sh_ / tot.replace(0, np.nan)
         b[f"{share}_present"] = tot
         b[f"exp_{out}"] = b[f"{share}_norm"] * b[vol]
+    # the same split seen through expert ranks: a player's weight among his position mates who are available
+    inv = (1.0 / b["ecr_ros"]).fillna(0.0)
+    tot = inv.groupby([b["game_id"], b["team"], b["posg"]]).transform("sum")
+    b["ecr_pos_share"] = (inv / tot.replace(0, np.nan)).where(b["ecr_ros"].notna())
+    b["ecr_team_rank"] = b.groupby(["game_id", "team", "posg"])["ecr_ros"].rank(method="min")
+    b["ecr_team_best"] = b.groupby(["game_id", "team", "posg"])["ecr_ros"].transform("min")
     b["snap_rank_pos"] = b.groupby(["game_id", "team", "posg"])["offense_pct_e6"].rank(ascending=False, method="min")
     b["tgt_rank_team"] = b.groupby(["game_id", "team"])["targets_e6"].rank(ascending=False, method="min")
     b["carry_rank_team"] = b.groupby(["game_id", "team"])["carries_e6"].rank(ascending=False, method="min")
@@ -409,7 +487,7 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
     qcols = ["attempts_e6", "passing_yards_e6", "passing_tds_e6", "passing_epa_e6", "passing_cpoe_e6",
              "ypa_e6", "games_career", "attempts_e2", "passing_yards_e2", "xpass_yds_e6", "xpass_td_e6",
              "ngs_p_iay_e6", "ngs_ttt_e6", "ngs_aggr_e6", "scrambles_e6", "comp_pct_e6", "sack_rate_e6",
-             "pressure_rate_e6", "bad_throw_rate_e6", "passing_air_yards_e6"]
+             "pressure_rate_e6", "bad_throw_rate_e6", "passing_air_yards_e6", "ecr_wk", "ecr_ros"]
     Q = b.loc[b["is_primary_qb"], ["game_id", "team", "player_id"] + qcols].drop_duplicates(["game_id", "team"])
     Q.columns = ["game_id", "team", "qb_id"] + [f"qb_{c}" for c in qcols]
     b = b.merge(Q, on=["game_id", "team"], how="left")

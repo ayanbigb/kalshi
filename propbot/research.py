@@ -66,6 +66,9 @@ def score(oos: pd.DataFrame, q: pd.DataFrame | None = None) -> dict:
     for stat, g in oos.groupby("stat"):
         out["grid"][stat] = float(_ll(g["y"].to_numpy(), g["p_cal"]).mean())
     out["grid"]["ALL"] = float(np.mean(list(out["grid"].values())))
+    if "focus" in oos.columns:  # the part of the grid that looks like listed markets
+        f = oos[oos["focus"]]
+        out["grid"]["FOCUS"] = float(np.mean([_ll(g["y"].to_numpy(), g["p_cal"]).mean() for _, g in f.groupby("stat")]))
     d = on_market(oos, q)
     for stat, g in d.groupby("stat"):
         out["market"][stat] = blend_gain(g)
@@ -77,9 +80,9 @@ def score(oos: pd.DataFrame, q: pd.DataFrame | None = None) -> dict:
 
 def show(scores: dict[str, dict]) -> None:
     names = list(scores)
-    stats = list(scores[names[0]]["grid"])
+    stats = [k for k in scores[names[0]]["grid"] if k != "FOCUS"]
     print("\nGRID log-loss (lower is better)")
-    print(pd.DataFrame({n: scores[n]["grid"] for n in names}).reindex(stats).round(4).to_string())
+    print(pd.DataFrame({n: scores[n]["grid"] for n in names}).reindex(stats + ["FOCUS"]).round(4).to_string())
     keys = list(scores[names[0]]["market"])
     print("\nMARKET strikes: model-alone log-loss")
     print(pd.DataFrame({n: {k: scores[n]["market"][k]["model"] for k in keys if k in scores[n]["market"]} for n in names})
@@ -97,10 +100,10 @@ def run(name: str, **opts) -> dict:
     from . import model
     from .data import load_all
     from .features import build
+    frame_path = DATA / f"{opts.pop('frame', 'frame')}.parquet"
     model.OPTS.update(opts)
     t0 = time.time()
-    frame_path = DATA / "frame.parquet"
-    if frame_path.exists() and not opts.get("rebuild"):
+    if frame_path.exists():
         df = pd.read_parquet(frame_path)
     else:
         df = build(load_all(), include_future=False)

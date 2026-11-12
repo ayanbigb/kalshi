@@ -55,6 +55,15 @@ RELATED = {
     "rr_yds": ["rush_yds", "rec_yds", "rush_att", "rec", "targets", "snap_pct"],
     "td": ["rr_yds", "rush_yds", "rec_yds", "rush_att", "rec", "targets", "snap_pct"],
 }
+# Kalshi only lists players with a real role, at strikes near their projection, while the history is mostly
+# bit-part players and strikes nobody would quote. FOCUS = (min projection, lowest k_z, highest k_z) fences
+# off the region that looks like listed markets (a little wider than what has been listed so far); with
+# OPTS["focus"] the ladder model and its calibration learn from that region only.
+FOCUS = {
+    "pass_yds": (150, -9, 14), "pass_tds": (0.7, -1.2, 2.2), "pass_att": (22, -2.2, 2.6), "pass_comp": (13, -2.2, 2.6),
+    "pass_int": (0.3, -0.6, 2.2), "rush_yds": (3, -6, 18), "rush_att": (2, -2.2, 4.0), "rec": (0.7, -1.6, 3.5),
+    "rec_yds": (6, -6.5, 19), "rr_yds": (15, -4, 16), "td": (0.03, -0.5, 2.0),
+}
 K_FEATS = ["k", "k_minus_mu", "k_log_ratio", "k_z", "k_zs", "emp_long", "emp_short", "emp_n", "mu", "sd"]
 K_MONO = [-1, -1, -1, -1, -1, 1, 1, 0, 0, 0]
 ALWAYS = ["pos_code", "games_career", "spread", "implied_total", "total_line", "is_home", "indoors", "wind",
@@ -68,6 +77,7 @@ OPTS = dict(
     emp=True,               # per-strike historical hit rates
     use_sd=True,            # let the ladder model see the stage 1b spread
     bags=1,                 # ladder models averaged (different seeds)
+    focus=False,            # train + calibrate the ladder only on market-like rows (see FOCUS)
     split_weeks=(1,),       # a backtest season is cut into blocks starting at these weeks; each block is
                             # predicted by models fitted on everything before it
     drop_feats=None,        # regex of stage-1 features to leave out (ablations)
@@ -245,8 +255,12 @@ def _ladder_task(a):
     g = _G
     X, Y, r, ri, cc = _ladder_data(stat)
     t = g["t"][r][ri]; seas = g["season"][r][ri]
+    lo_mu, lo_z, hi_z = FOCUS[stat]
+    focus = ((X["mu"] >= lo_mu) & X["k_z"].between(lo_z, hi_z)).to_numpy()
     tr = t < blk[0] if blk else np.ones(len(t), bool)
     te = (t >= blk[0]) & (t < blk[1]) if blk else np.zeros(len(t), bool)
+    if OPTS["focus"]:
+        tr &= focus
     if blk and (not te.any() or tr.sum() < 500):
         return stat, blk, None, None
     W = np.power(0.9, seas[tr].max() - seas[tr])
@@ -264,6 +278,7 @@ def _ladder_task(a):
     out = g["ids"].iloc[r[ri[te]]].reset_index(drop=True)
     out["stat"] = stat; out["k"] = k[te]; out["mu"] = X.loc[te, "mu"].to_numpy(); out["sd"] = X.loc[te, "sd"].to_numpy()
     out["p"] = p; out["p_base"] = pb; out["y"] = Y[te]; out["actual"] = g["y"][stat][~np.isnan(g["mu"][stat])][ri[te]]
+    out["focus"] = focus[te]
     return stat, blk, out, None
 
 
@@ -358,10 +373,11 @@ def train(df: pd.DataFrame, backtest: bool = True, final: bool = True, log=print
                 parts[stat].append(o)
         for stat in stats:
             o = pd.concat(parts[stat], ignore_index=True)
+            cal_rows = o["focus"] if OPTS["focus"] else pd.Series(True, index=o.index)
             # leave-one-season-out isotonic so the calibrated numbers are honest
             o["p_cal"] = o["p"]
             for T in o["season"].unique():
-                a, bmask = o["season"] != T, o["season"] == T
+                a, bmask = (o["season"] != T) & cal_rows, o["season"] == T
                 if a.any():
                     o.loc[bmask, "p_cal"] = IsotonicRegression(out_of_bounds="clip", y_min=0.002, y_max=0.998) \
                         .fit(o.loc[a, "p"], o.loc[a, "y"]).predict(o.loc[bmask, "p"])
@@ -375,7 +391,8 @@ def train(df: pd.DataFrame, backtest: bool = True, final: bool = True, log=print
                 ece_raw=_ece(yy, o["p"].to_numpy()), ece_cal=_ece(yy, o["p_cal"].to_numpy()),
                 mae_projection=float(np.abs(one["actual"] - one["mu"]).mean()),
                 by_season={int(T): _metrics(gp["y"].to_numpy(), gp["p_cal"].to_numpy())["logloss"] for T, gp in o.groupby("season")})
-            calib[stat] = IsotonicRegression(out_of_bounds="clip", y_min=0.002, y_max=0.998).fit(o["p"], o["y"])
+            calib[stat] = IsotonicRegression(out_of_bounds="clip", y_min=0.002, y_max=0.998) \
+                .fit(o.loc[cal_rows, "p"], o.loc[cal_rows, "y"])
             oos_all.append(o)
             rp = report[stat]
             log(f"  {stat:9s} n={rp['model']['n']:>7}  logloss {rp['model']['logloss']:.4f} vs naive {rp['baseline']['logloss']:.4f}"

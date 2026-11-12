@@ -28,6 +28,7 @@ def cmd_train(a):
     print(f"training on {len(df):,} player-games x {df.shape[1]} columns")
     train(df, backtest=not a.no_backtest)
     print("models saved to models/ ; backtest in reports/backtest.json")
+    print("next: `market-backtest --refresh` re-scores against Kalshi prices and refits the model/market blend")
 
 
 def cmd_report(a):
@@ -110,7 +111,7 @@ def cmd_status(a):
 
 def cmd_market_backtest(a):
     from .bot import market_backtest
-    print(json.dumps(market_backtest(min_volume=a.min_volume), indent=1))
+    print(json.dumps(market_backtest(min_volume=a.min_volume, refresh=a.refresh), indent=1))
 
 
 def cmd_kill(a):
@@ -142,8 +143,10 @@ def main():
     s = sub.add_parser("settle", help="settle finished positions in the ledger"); s.add_argument("--live", action="store_true"); s.set_defaults(f=cmd_settle)
     s = sub.add_parser("status", help="bankroll, P&L and recent trades"); s.add_argument("--live", action="store_true")
     s.add_argument("-n", type=int, default=30); s.set_defaults(f=cmd_status)
-    s = sub.add_parser("market-backtest", help="model vs real Kalshi pre-kickoff quotes this season")
-    s.add_argument("--min-volume", type=float, default=25); s.set_defaults(f=cmd_market_backtest)
+    s = sub.add_parser("market-backtest", help="model vs real Kalshi pre-kickoff quotes; also refits the model/market blend")
+    s.add_argument("--min-volume", type=float, default=25)
+    s.add_argument("--refresh", action="store_true", help="also download markets settled since the last run")
+    s.set_defaults(f=cmd_market_backtest)
     s = sub.add_parser("kill", help="engage (or --off release) the kill switch")
     s.add_argument("--off", action="store_true"); s.add_argument("--cancel", action="store_true", help="also cancel resting live orders")
     s.set_defaults(f=cmd_kill)
