@@ -316,9 +316,13 @@ def search(pr: ComboPricer, cfg: dict, log=print) -> pd.DataFrame:
     players = L["player_id"].to_numpy()
     max_game, max_player = c.get("max_legs_per_game", 4), c.get("max_legs_per_player", 2)
     max_rho = c.get("max_pair_rho", 0.85)
+    stats_ = L["stat"].to_numpy()
+    max_stat = c.get("max_same_stat", 2)
 
     def ok(idx, j):
         if sum(games[i] == games[j] for i in idx) >= max_game or sum(players[i] == players[j] for i in idx) >= max_player:
+            return False
+        if sum(stats_[i] == stats_[j] for i in idx) >= max_stat:
             return False
         return all(abs(pr.rho(i, j)) <= max_rho for i in idx)
     n = len(L)

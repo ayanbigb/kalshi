@@ -13,6 +13,14 @@
   slippage) and `params.py` (250-parameter checklist -> PARAMETERS.md: 234 implemented, 16 need paid data).
 - The new feature blocks have NOT been judged on the market board (`market-backtest` + `research --compare`).
   RESEARCH.md's rule is that a feature stays only if it helps there; do that before trusting them.
+- Retrained 2026-11-13 (through 2026 wk 9). Walk-forward grid log-loss vs the model-robustness model:
+  a wash (7 stats better by <=0.0025, 4 worse by <=0.0025). The extra parameters add little on top of it.
+- Copula vs independence on unseen 2026 same-game combos: 2-leg 0.521 -> 0.517, 3-leg 0.358 -> 0.356,
+  4-leg 0.210 -> 0.205 log-loss; predicted vs actual hit rate 0.252/0.258, 0.125/0.127, 0.063/0.061.
+- Live combos 2026-11-13 lean entirely on NO/under legs (pass att, pass yds, INT, TD unders). The model sits
+  below the market on overs; whether that's edge or model bias is unproven -> run the market board first.
+  Combos are capped at 2 legs per stat type for that reason.
+- Settled-quote cache download (for `market-backtest`) was started and is resumable; ~20k archived tickers.
 - Expert ranks: nflreadpy's github.com/.../raw URL is refused on some networks; `data._raw_download` now pulls
   the dynastyprocess files from raw.githubusercontent.com into data/external/.
 

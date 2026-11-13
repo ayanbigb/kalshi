@@ -93,7 +93,7 @@ DEFAULTS = {
         "min_combo_p": 0.04,          # ignore lottery tickets below this joint probability
         "min_leg_p": 0.25, "max_leg_p": 0.93,
         "min_leg_edge": 0.0,          # leg must be at least as likely as the market says (log-odds)
-        "max_leg_spread": 0.10,
+        "max_leg_spread": 0.06,       # wider quotes have meaningless mids (RESEARCH.md)
         "allow_no": True,             # allow "under" legs (NO side of an N+ market)
         "same_game_only": False,
         "rungs_per_ladder": 4, "max_candidates": 70, "beam": 250, "draws": 40000,
@@ -106,6 +106,7 @@ DEFAULTS = {
         "max_legs_per_game": 4,       # concentration limits
         "max_legs_per_player": 2,
         "max_pair_rho": 0.85,         # two legs this correlated are nearly the same bet
+        "max_same_stat": 2,           # legs of one stat type: a model bias on that stat would sink them together
     },
 }
 

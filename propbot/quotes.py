@@ -27,7 +27,7 @@ def history(hours: float = 30) -> pd.DataFrame:
         return pd.DataFrame(columns=COLS)
     cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=hours)
     files = [f for f in sorted(QDIR.glob("*.parquet"))
-             if pd.Timestamp.strptime(f.stem, "%Y%m%d_%H%M%S").tz_localize("UTC") >= cutoff]
+             if pd.to_datetime(f.stem, format="%Y%m%d_%H%M%S").tz_localize("UTC") >= cutoff]
     return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True) if files else pd.DataFrame(columns=COLS)
 
 

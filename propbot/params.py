@@ -269,7 +269,7 @@ P = [
     (239, "Props from same game", "combo", "max_legs_one_game, shared_game_legs"),
     (240, "Props across games", "combo", "n_games"),
     (241, "Exposure to one game", "combo", "max_legs_per_game cap"),
-    (242, "Exposure to one player", "combo", "max_legs_per_player cap"),
+    (242, "Exposure to one player", "combo", "max_legs_per_player cap; max_same_stat caps one stat type"),
     (243, "Accuracy of similar combos", "combo", "combo-backtest by leg count (reports/combo_backtest.json)"),
     (244, "Max acceptable correlation", "combo", "max_pair_rho cap"),
     (245, "Optimal number of legs", "combo", "growth-ranked best per size"),
