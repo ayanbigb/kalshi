@@ -1,0 +1,168 @@
+{
+ "walk_forward": {
+  "bets": 3595,
+  "roi": 0.04773804437263734,
+  "win_rate": 0.46091794158553545
+ },
+ "shipped_rules": {
+  "bets": 1008,
+  "roi": 0.0638289775501069
+ },
+ "best_in_sample_rules": {
+  "trust": 1.75,
+  "min_edge": 0.015,
+  "max_dis": 0.15,
+  "max_spread": 0.06
+ },
+ "chosen_counts": [
+  {
+   "trust": 1.75,
+   "min_edge": 0.015,
+   "max_dis": 0.15,
+   "max_spread": 0.06,
+   "count": 10
+  },
+  {
+   "trust": 2.5,
+   "min_edge": 0.04,
+   "max_dis": 0.15,
+   "max_spread": 0.06,
+   "count": 9
+  },
+  {
+   "trust": 1.0,
+   "min_edge": 0.025,
+   "max_dis": 0.25,
+   "max_spread": 0.06,
+   "count": 4
+  },
+  {
+   "trust": 2.5,
+   "min_edge": 0.04,
+   "max_dis": 0.15,
+   "max_spread": 0.03,
+   "count": 4
+  }
+ ],
+ "risk_table": [
+  {
+   "frac": 0.1,
+   "cap_trade": 0.02,
+   "cap_week": 0.3,
+   "bets": 3595,
+   "weeks": 26,
+   "actual_end": 578.7612135640401,
+   "actual_return": 0.15752242712808018,
+   "actual_max_dd": 0.07982368892690572,
+   "median_return": 0.16064516253823058,
+   "p5_return": -0.11699478616181846,
+   "p_loss": 0.1755,
+   "p95_max_dd": 0.21653462731863582,
+   "roi_flat": 0.04773804437263734,
+   "staked_units": 33.61565942425514,
+   "usable": true
+  },
+  {
+   "frac": 0.2,
+   "cap_trade": 0.05,
+   "cap_week": 0.5,
+   "bets": 3595,
+   "weeks": 26,
+   "actual_end": 605.3928563903113,
+   "actual_return": 0.21078571278062253,
+   "actual_max_dd": 0.14552667815459172,
+   "median_return": 0.21511775576922076,
+   "p5_return": -0.25292502946527906,
+   "p_loss": 0.2485,
+   "p95_max_dd": 0.38114605487644454,
+   "roi_flat": 0.04773804437263734,
+   "staked_units": 70.81053956579358,
+   "usable": false
+  },
+  {
+   "frac": 0.35,
+   "cap_trade": 0.05,
+   "cap_week": 0.6,
+   "bets": 3595,
+   "weeks": 26,
+   "actual_end": 657.2705088330501,
+   "actual_return": 0.3145410176661003,
+   "actual_max_dd": 0.2159701999592362,
+   "median_return": 0.31169391314794503,
+   "p5_return": -0.27193031176079885,
+   "p_loss": 0.22,
+   "p95_max_dd": 0.4295204664117284,
+   "roi_flat": 0.04773804437263734,
+   "staked_units": 105.93092554382659,
+   "usable": false
+  },
+  {
+   "frac": 0.5,
+   "cap_trade": 0.08,
+   "cap_week": 0.8,
+   "bets": 3595,
+   "weeks": 26,
+   "actual_end": 654.7524260110719,
+   "actual_return": 0.30950485202214373,
+   "actual_max_dd": 0.30646748389255163,
+   "median_return": 0.30643461688008067,
+   "p5_return": -0.4217741830890803,
+   "p_loss": 0.283,
+   "p95_max_dd": 0.5674308603101139,
+   "roi_flat": 0.04773804437263734,
+   "staked_units": 157.3462129131721,
+   "usable": false
+  },
+  {
+   "frac": 0.75,
+   "cap_trade": 0.1,
+   "cap_week": 1.0,
+   "bets": 3595,
+   "weeks": 26,
+   "actual_end": 666.334310842472,
+   "actual_return": 0.33266862168494393,
+   "actual_max_dd": 0.421768438400959,
+   "median_return": 0.3267043092707109,
+   "p5_return": -0.5500709420975262,
+   "p_loss": 0.314,
+   "p95_max_dd": 0.6845482451823554,
+   "roi_flat": 0.04773804437263734,
+   "staked_units": 221.33848419873283,
+   "usable": false
+  },
+  {
+   "frac": 1.0,
+   "cap_trade": 0.15,
+   "cap_week": 1.0,
+   "bets": 3595,
+   "weeks": 26,
+   "actual_end": 507.3212510229099,
+   "actual_return": 0.01464250204581985,
+   "actual_max_dd": 0.5448529451705706,
+   "median_return": 0.024020527281219506,
+   "p5_return": -0.7182201897145437,
+   "p_loss": 0.4855,
+   "p95_max_dd": 0.7997550076308879,
+   "roi_flat": 0.04773804437263734,
+   "staked_units": 307.90999022214476,
+   "usable": false
+  }
+ ],
+ "recommended": {
+  "frac": 0.1,
+  "cap_trade": 0.02,
+  "cap_week": 0.3,
+  "bets": 3595,
+  "weeks": 26,
+  "actual_end": 578.7612135640401,
+  "actual_return": 0.15752242712808018,
+  "actual_max_dd": 0.07982368892690572,
+  "median_return": 0.16064516253823058,
+  "p5_return": -0.11699478616181846,
+  "p_loss": 0.1755,
+  "p95_max_dd": 0.21653462731863582,
+  "roi_flat": 0.04773804437263734,
+  "staked_units": 33.61565942425514,
+  "usable": true
+ }
+}
