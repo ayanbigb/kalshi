@@ -64,7 +64,8 @@ DEFAULTS = {
         "learned_blend": False,       # use models/blend.json instead of market_weight. Off: over 2025-26 the
                                       # fixed weight beat the learned one walk-forward (see RESEARCH.md)
         "blend_ridge": 3000.0,
-        "use_weather": False,         # wx_* features in the model (needs forecasts at scan time; see weather.py)        # shrinkage of the learned blend toward market_weight
+        "use_weather": False,
+        "drop_feats": None,           # regex of features to leave out of training (set from research ablations)         # wx_* features in the model (needs forecasts at scan time; see weather.py)        # shrinkage of the learned blend toward market_weight
     },
     "risk": {
         "bankroll": 500.0,            # paper bankroll; live mode reads the real balance
@@ -106,7 +107,13 @@ DEFAULTS = {
         "max_legs_per_game": 4,       # concentration limits
         "max_legs_per_player": 2,
         "max_pair_rho": 0.85,         # two legs this correlated are nearly the same bet
-        "max_same_stat": 2,           # legs of one stat type: a model bias on that stat would sink them together
+        "max_same_stat": 2,
+        # policy (strategy.py / combo-run)
+        "allowed_legs": [2, 3, 4, 5],
+        "combo_kelly_fraction": 0.10,  # of robust Kelly; combos are far noisier than single props
+        "max_weekly_combo_frac": 0.05, # total open combo stake as a fraction of bankroll
+        "max_combos_per_run": 3,
+        "bt_candidates": 40,          # legs per week in the real-price backtest           # legs of one stat type: a model bias on that stat would sink them together
     },
 }
 

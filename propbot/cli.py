@@ -21,6 +21,8 @@ def cmd_update(a):
 
 
 def cmd_train(a):
+    from . import model as _m
+    _m.OPTS["drop_feats"] = load_config()["model"].get("drop_feats") or _m.OPTS["drop_feats"]
     from .data import load_all
     from .features import build
     from .model import train
@@ -142,6 +144,84 @@ def cmd_combos(a):
 
 
 
+def cmd_fit_realization(a):
+    from . import strategy
+    er = strategy.fit_realization()
+    print(f"edge realization lambda (1 = the blend's disagreement with Kalshi is fully real, 0 = market right): "
+          f"{er['pooled']:.2f} [10-90%: {er['pooled_lo']:.2f}..{er['pooled_hi']:.2f}] on {er['n']:,} quotes")
+    print("by season: " + ", ".join(f"{k} {v:.2f}" for k, v in er["by_season"].items()))
+    print(pd.DataFrame(er["by_stat"]).T.round(2).to_string())
+
+
+def cmd_combo_bt_market(a):
+    from . import strategy
+    s = strategy.backtest(all_stats=a.all_stats)
+    _show_combo_bt(s)
+
+
+def _show_combo_bt(s: dict):
+    rows = []
+    for k, r in s.items():
+        for h, v in r["by_hold"].items():
+            rows.append(dict(legs=int(k), hold=float(h), combos=r["combos"], weeks=r["weeks"], p_model=r["p_model"],
+                             p_fair=r["p_fair"], hit_rate=r["hit_rate"], avg_price=v["avg_price"], pred_roi=v["pred_roi"],
+                             roi=v["roi"], roi_ci90=f"{v['roi_lo']:+.0%}..{v['roi_hi']:+.0%}", p_roi_pos=v["p_roi_pos"],
+                             sd_per_bet=v["sd_per_bet"], max_dd_units=v["max_dd_units"]))
+    print(pd.DataFrame(rows).round(3).to_string(index=False))
+
+
+def cmd_combo_plan(a):
+    from . import strategy
+    t = strategy.plan(a.bankroll, a.weeks, a.per_week, a.target, a.hold, frac=a.kelly, all_stats=a.all_stats)
+    pd.set_option("display.float_format", lambda x: f"{x:,.3f}")
+    print(f"bankroll ${a.bankroll:,.0f}, {a.weeks} weeks x {a.per_week} combos/week, target {a.target:+.0%}, "
+          f"assumed combo hold {a.hold:.0%}, sizing {a.kelly:g} x Kelly\n")
+    print(t.T.to_string())
+    solid = t[t["combos_tested"] >= 40]
+    solid = solid if len(solid) else t
+    best = solid.loc[solid["kelly_season_ret"].idxmax()] if len(solid) else None
+    if best is not None:
+        print(f"\nmoney in -> money out for one {int(best['legs'])}-leg combo at {best['price']:.3f} "
+              f"(hit rate {best['hit_rate']:.1%}):")
+        print(strategy.stake_table(best["hit_rate"], best["price"]).round(2).to_string(index=False))
+
+
+def cmd_combo_math(a):
+    from . import strategy
+    t = strategy.leg_count_math(a.p_leg, a.edge, a.hold, a.rho, bankroll=a.bankroll, frac=a.kelly, n_bets=a.n_bets)
+    print(f"each leg: our P {a.p_leg:.0%}, market P {a.p_leg / (1 + a.edge):.1%} (edge {a.edge:+.0%}), leg correlation {a.rho}, "
+          f"combo hold {a.hold:.0%}, bankroll ${a.bankroll:,.0f} at {a.kelly:g} Kelly, {a.n_bets} bets\n")
+    print(t.round(4).to_string(index=False))
+
+
+def cmd_combo_run(a):
+    from . import combos, strategy
+    from .bot import scan
+    cfg = load_config()
+    last = REPORTS / "last_scan.parquet"
+    px = pd.read_parquet(last) if (not a.rescan and last.exists() and time.time() - last.stat().st_mtime < 1800) else scan(cfg)
+    res = combos.suggest(px, cfg, top=20)
+    if res["combos"].empty:
+        print("no combos pass"); return
+    open_ = strategy.open_combos()
+    picks = strategy.choose(res, cfg, cfg["risk"]["bankroll"], float(open_["stake"].sum()) if len(open_) else 0.0)
+    if picks.empty:
+        print("nothing clears the robust EV / Kelly gates"); return
+    strategy.record(picks)
+    for p in picks.to_dict("records"):
+        print(f"  [paper] {p['n_legs']} legs  {p['contracts']} contracts @ {p['price']:.3f} (accept up to {p['max_price']:.3f})"
+              f"  P model {p['p_model']:.3f} robust {p['p_robust']:.3f}  EV {p['ev']:+.1%}  stake ${p['stake']:.2f}\n      {p['desc']}")
+
+
+def cmd_combo_settle(a):
+    from . import strategy
+    strategy.settle()
+    st = strategy.status()
+    s = st[st["status"] == "settled"]
+    print(f"{len(st)} paper combos, {len(s)} settled, P&L ${s['pnl'].sum():+.2f} on ${s['stake'].sum():.2f} staked"
+          if len(st) else "no paper combos yet")
+
+
 def cmd_params(a):
     from .params import coverage
     coverage(write=True)
@@ -204,6 +284,11 @@ def cmd_run(a):
         print(time.strftime("%Y-%m-%d %H:%M:%S"), "LIVE" if a.live else "paper")
         settle(a.live)
         run_once(live=a.live, refresh=a.refresh)
+        if a.combos:  # paper combos ride on the scan run_once just saved
+            from . import strategy
+            strategy.settle()
+            a.rescan = False
+            cmd_combo_run(a)
         if not a.loop:
             break
         time.sleep(a.loop * 60)
@@ -255,7 +340,8 @@ def main():
     s.add_argument("--refresh", action="store_true"); s.set_defaults(f=cmd_scan)
     s = sub.add_parser("run", help="scan + risk engine + orders (paper unless --live)")
     s.add_argument("--live", action="store_true"); s.add_argument("--loop", type=int, default=0, help="repeat every N minutes")
-    s.add_argument("--refresh", action="store_true"); s.set_defaults(f=cmd_run)
+    s.add_argument("--refresh", action="store_true")
+    s.add_argument("--combos", action="store_true", help="also choose/size/record PAPER combos each pass"); s.set_defaults(f=cmd_run)
     s = sub.add_parser("settle", help="settle finished positions in the ledger"); s.add_argument("--live", action="store_true"); s.set_defaults(f=cmd_settle)
     s = sub.add_parser("status", help="bankroll, P&L and recent trades"); s.add_argument("--live", action="store_true")
     s.add_argument("-n", type=int, default=30); s.set_defaults(f=cmd_status)
@@ -275,6 +361,23 @@ def main():
     s = sub.add_parser("combo-backtest", help="does the correlation model price combos better than independence?")
     s.add_argument("--test-from", type=int, default=2026); s.add_argument("-n", type=int, default=4000); s.set_defaults(f=cmd_combo_backtest)
     sub.add_parser("weather-backfill", help="download historical game weather (slow, resumable)").set_defaults(f=cmd_weather_backfill)
+    sub.add_parser("fit-realization", help="how much of the model's disagreement with Kalshi comes true").set_defaults(f=cmd_fit_realization)
+    s = sub.add_parser("combo-backtest-market", help="combos by leg count on real 2025-26 Kalshi prices and outcomes")
+    s.add_argument("--all-stats", action="store_true", help="include stats Kalshi won't let into combos"); s.set_defaults(f=cmd_combo_bt_market)
+    s = sub.add_parser("combo-plan", help="stake sizing / expected returns / risk by leg count")
+    s.add_argument("--bankroll", type=float, default=500); s.add_argument("--weeks", type=int, default=8)
+    s.add_argument("--per-week", type=int, default=3); s.add_argument("--target", type=float, default=0.20)
+    s.add_argument("--hold", type=float, default=0.10); s.add_argument("--kelly", type=float, default=0.25)
+    s.add_argument("--all-stats", action="store_true", help="use the backtest that includes rec / rec yds / rush yds legs")
+    s.set_defaults(f=cmd_combo_plan)
+    s = sub.add_parser("combo-math", help="3 vs 5 legs etc. with same-quality legs: EV, variance, Kelly, growth")
+    s.add_argument("--p-leg", type=float, default=0.60); s.add_argument("--edge", type=float, default=0.05)
+    s.add_argument("--hold", type=float, default=0.10); s.add_argument("--rho", type=float, default=0.0)
+    s.add_argument("--bankroll", type=float, default=500); s.add_argument("--kelly", type=float, default=0.25)
+    s.add_argument("--n-bets", type=int, default=24); s.set_defaults(f=cmd_combo_math)
+    s = sub.add_parser("combo-run", help="policy: choose, size and PAPER-record combos"); s.add_argument("--rescan", action="store_true")
+    s.set_defaults(f=cmd_combo_run)
+    sub.add_parser("combo-settle", help="settle paper combos leg by leg").set_defaults(f=cmd_combo_settle)
     sub.add_parser("params", help="coverage of the 250-parameter checklist -> PARAMETERS.md").set_defaults(f=cmd_params)
     s = sub.add_parser("kill", help="engage (or --off release) the kill switch")
     s.add_argument("--off", action="store_true"); s.add_argument("--cancel", action="store_true", help="also cancel resting live orders")

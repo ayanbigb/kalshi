@@ -1,5 +1,11 @@
 # propbot — project handoff (state as of 2026-11-13)
 
+## 2026-11-13 (later): combo strategy layer
+`strategy.py` + `STRATEGY.md`: edge realization (lambda 1.13 pooled; legs sized on the 10th-percentile lambda),
+real-price combo backtests by leg count (`reports/combo_market_backtest*.json`), leg-count calibration factors
+(`models/combo_calibration.json`), `combo-math`, `combo-plan`, and the paper combo policy (`combo-run`,
+`combo-settle`, `run --combos`; ledger table `combos`). Feature ablations for the matchup set: `reports/exp_*.json`.
+
 ## 2026-11-13: branches merged
 `claude/peaceful-knuth-u3qs0s` now contains both lines of work:
 - from `model-robustness`: opportunity / NGS / PFR features, depth charts, expert ranks, stage 1b spread model,

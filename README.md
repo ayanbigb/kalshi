@@ -106,6 +106,11 @@ python -m propbot combos --same-game --team SEA --max-legs 4
 python -m propbot combo-backtest    # correlation model vs "legs are independent" on an unseen season
 python -m propbot params            # 250-parameter checklist coverage -> PARAMETERS.md
 python -m propbot weather-backfill  # historical game weather (slow, resumable)
+python -m propbot combo-math --p-leg 0.6 --edge 0.05 --hold 0.10   # 3 vs 5 legs: EV, variance, Kelly, growth
+python -m propbot combo-backtest-market [--all-stats]  # combos by leg count on real 2025-26 prices
+python -m propbot combo-plan --bankroll 500 --weeks 8 --target 0.2  # stakes, returns, drawdowns, ruin
+python -m propbot combo-run         # policy: choose, size, record PAPER combos (combo-settle to settle)
+python -m propbot run --loop 15 --combos   # singles + combos each pass
 python -m propbot run               # scan + risk engine + PAPER orders
 python -m propbot run --loop 15     # same, every 15 minutes
 python -m propbot settle            # settle finished positions
@@ -218,6 +223,9 @@ capped at 4 legs per game, 2 per player and |correlation| ≤ 0.85 between any t
 list (yes-only events get no NO legs), minus `combos.not_combinable_stats`, which defaults to receptions,
 receiving yards and rushing yards per the Help Center. Protected (`…PROT`) markets are never used.
 Player stats settle on official stats including overtime, which is what nflverse records too.
+
+**The math and the evidence** (edge realization, real-price combo backtest by leg count, 3-vs-5-leg
+analysis, staking plan, bot policy) are in `STRATEGY.md`.
 
 Combo prices come from market makers on request (RFQ), and Kalshi doesn't publish them, so `hold` in
 `config.yaml` is an assumption. Build the combo in the app and compare the quote to "accept up to".
