@@ -24,24 +24,28 @@ came true on average; λ = 0 means the market was right.
 
 | | λ | 10%–90% (game bootstrap) |
 |---|---|---|
-| pooled | **1.13** | 0.91 – 1.34 |
-| 2025 | 1.08 | |
-| 2026 | 1.14 | |
+| pooled | **1.19** | 0.96 – 1.43 |
+| 2025 | 1.05 | |
+| 2026 | 1.23 | |
 
-Per stat (shrunk toward the pooled value; `lo` is what the bot sizes on):
+Per stat (shrunk toward the pooled value; `lo` is what the bot sizes on, capped at 1):
 
 | stat | n | raw | shrunk | lo |
 |---|---|---|---|---|
-| pass_yds | 3,951 | 1.67 | 1.43 | 1.22 |
-| rec | 11,074 | 1.33 | 1.28 | 1.07 |
-| pass_att | 405 | 2.65 | 1.31 | 1.09 |
-| td | 3,584 | 0.97 | 1.04 | 0.83 |
-| rush_yds | 8,764 | 0.85 | 0.92 | 0.71 |
-| rec_yds | 16,447 | 0.83 | 0.88 | 0.66 |
-| pass_int | 670 | 0.11 | 0.94 | 0.72 |
+| pass_yds | 3,951 | 1.96 | 1.62 | 1.40 |
+| pass_comp | 437 | 2.31 | 1.33 | 1.10 |
+| pass_att | 405 | 2.23 | 1.31 | 1.08 |
+| rush_att | 1,019 | 1.42 | 1.25 | 1.02 |
+| pass_int | 670 | 1.49 | 1.24 | 1.01 |
+| td | 3,584 | 1.11 | 1.14 | 0.92 |
+| rec_yds | 16,447 | 1.12 | 1.13 | 0.90 |
+| pass_tds | 1,519 | 1.02 | 1.13 | 0.90 |
+| rec | 11,074 | 1.07 | 1.09 | 0.87 |
+| rr_yds | 659 | 0.42 | 1.05 | 0.82 |
+| rush_yds | 8,764 | 0.89 | 0.97 | 0.74 |
 
-So the blend's edge is real on average, and the 70/30 weight is if anything too timid. But it is weakest
-exactly on the most-traded stats (receiving and rushing yards). Every leg the bot puts in a combo is re-priced as
+So the blend's edge is real on average, and the 70/30 weight is if anything too timid. It is weakest on
+rushing yards and rush+rec yards. Every leg the bot puts in a combo is re-priced as
 
     p_robust = expit( logit(p_market) + min(λ_lo(stat), 1) · gap )
 
@@ -56,37 +60,51 @@ each size 2–6 (up to 3 non-overlapping per size per week) and they are settled
 not publish combo quotes, so each is priced at its correlation-aware fair value × (1 + hold). ROI is per $1
 staked at a 10% hold; intervals resample whole weeks.
 
-**Only stats Kalshi lets into combos** (no rec / rec yds / rush yds), 187 combos:
+**Only stats Kalshi lets into combos** (no rec / rec yds / rush yds), 186 combos:
 
 | legs | combos | model said | hit | price | ROI | 90% CI |
 |---|---|---|---|---|---|---|
-| 2 | 59 | 25.6% | 37.3% | 0.233 | +64% | +7% … +127% |
-| 3 | 53 | 19.3% | 20.8% | 0.164 | +100% | −7% … +214% |
-| 4 | 48 | 15.4% | 16.7% | 0.124 | +167% | −14% … +354% |
-| 5 | 15 | 25.2% | 26.7% | 0.191 | +160% | −63% … +482% |
-| 6 | 12 | 27.1% | 25.0% | 0.198 | +309% | −70% … +778% |
+| 2 | 57 | 23.5% | 28.1% | 0.213 | +62% | −5% … +133% |
+| 3 | 53 | 20.2% | 20.8% | 0.173 | −6% | −73% … +75% |
+| 4 | 45 | 15.5% | 17.8% | 0.126 | +36% | −74% … +160% |
+| 5 | 17 | 20.9% | 29.4% | 0.158 | +174% | −61% … +509% |
+| 6 | 14 | 21.3% | 35.7% | 0.153 | +324% | −41% … +860% |
 
-**All stats**, 278 combos:
+**All stats**, 284 combos:
 
 | legs | combos | model said | hit | price | ROI | 90% CI |
 |---|---|---|---|---|---|---|
-| 2 | 76 | 34.3% | 31.6% | 0.319 | −16% | −52% … +26% |
-| 3 | 71 | 27.2% | 28.2% | 0.235 | +16% | −38% … +76% |
-| 4 | 58 | 19.6% | 15.5% | 0.159 | −25% | −74% … +38% |
-| 5 | 41 | 18.6% | 14.6% | 0.142 | +60% | −79% … +239% |
-| 6 | 32 | 19.1% | 9.4% | 0.138 | +5% | −88% … +138% |
+| 2 | 76 | 33.3% | 27.6% | 0.311 | −26% | −58% … +14% |
+| 3 | 71 | 26.7% | 18.3% | 0.234 | −49% | −70% … −26% |
+| 4 | 63 | 19.0% | 15.9% | 0.155 | −3% | −67% … +93% |
+| 5 | 43 | 17.8% | 16.3% | 0.136 | −41% | −73% … −8% |
+| 6 | 31 | 17.7% | 9.7% | 0.129 | −53% | −88% … −9% |
 
-What survives both runs (465 combos together):
+**Both together**, 470 combos (ROI per $1 at 0% / 5% / 10% hold):
 
-- **Overall calibration is right**: predicted 23.7%, hit 23.7%.
-- **The legs beat the market's own price**: hit rate ÷ market fair price = 1.38 (2 legs), 1.40 (3), 1.29 (4),
-  1.34 (5), 1.02 (6). Whether that becomes profit depends on the hold Kalshi's market makers charge.
-- **Overconfidence grows with legs**: hit ÷ predicted = 1.12, 1.05, 0.90, 0.88, 0.64 for 2…6 legs. The
-  optimizer picks the legs the model is most optimistic about, and that selection compounds per leg. The bot
-  multiplies combo probabilities by a factor fitted from this (`models/combo_calibration.json`: 1.00, 1.00,
-  0.95, 0.95, 0.86; it only ever shrinks), and does not bet 6-leg combos by default.
-- **Noise is enormous**: no row's interval excludes zero in both runs. The combinable-only run ran hot (2-leg
-  hit 37% against 26% predicted is about 2 standard errors); do not plan on those ROIs.
+| legs | combos | model said | hit | market fair | hit ÷ fair | ROI @0% | ROI @5% | ROI @10% [90% CI] |
+|---|---|---|---|---|---|---|---|---|
+| 2 | 133 | 29.1% | 27.8% | 23.5% | 1.18 | +23% | +17% | +12% [−28%, +55%] |
+| 3 | 124 | 23.9% | 19.4% | 18.1% | 1.07 | −24% | −27% | −31% [−63%, +3%] |
+| 4 | 108 | 17.6% | 16.7% | 12.4% | 1.35 | +24% | +19% | +13% [−48%, +84%] |
+| 5 | 60 | 18.7% | 20.0% | 12.3% | 1.63 | +32% | +26% | +20% [−59%, +129%] |
+| 6 | 45 | 18.8% | 17.8% | 11.8% | 1.51 | +81% | +72% | +64% [−67%, +253%] |
+
+**The robustness check that matters most.** The same two backtests run with the previous model (log-loss
+0.5046 vs 0.5033 on single props: nearly the same model) gave, for all stats at a 10% hold, 2 legs −16%,
+3 legs **+16%**, 4 legs −25%, 5 legs **+60%**, 6 legs +5%. A near-identical model flips the sign of several
+rows. Per-leg-count combo P&L over a season and a half is noise.
+
+What does survive every run:
+
+- **Combos are slightly overconfident**: 22.8% predicted, 21.1% hit over 470 combos (the optimizer picks the
+  legs the model likes most, and that selection compounds per leg). The bot multiplies combo probabilities by a
+  shrink-only factor fitted from this (`models/combo_calibration.json`: 0.97, 0.87, 0.97, 1.00, 0.98 for 2–6
+  legs).
+- **The legs still beat the market's own price**: hit ÷ market fair = 1.07 – 1.63 in every row. The edge is
+  real before the market maker's hold; whether it survives the hold is the open question, and with a 10% hold
+  the answer in this sample is "not reliably, at any leg count".
+- **No leg count is proven better.** The analytic section below is the better guide to 3 vs 5 legs.
 
 ## 3. Why the number of legs matters (same-quality legs)
 
@@ -136,20 +154,33 @@ Read it as:
 
 From the real-price backtest, using the lower of the backtest hit rate and the model's prediction, with the
 hit rate drawn from a Beta posterior in each simulated season (so being wrong about the edge is part of the
-risk). $500 bankroll, 8 weeks × 3 combos, 10% hold, ¼ Kelly. All-stats backtest:
+risk). $500 bankroll, 8 weeks × 3 combos, 10% hold, ¼ Kelly.
 
-| legs | hit | price | payout | EV/$ | Kelly | ¼-Kelly stake | median 8-wk return | P(profit) | 95th-pct drawdown |
+Combinable stats only:
+
+| legs | hit | price | payout | EV/$ | Kelly | median 8-wk return | P(profit) | stake for +20% | × Kelly | P(reach) | P(lose half) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 2 | 23.5% | 0.201 | 4.7x | +10.5% | 2.8% | +2.8% | 50% | $39.72 | 2.8 | 50% | 39% |
+| 3 | 20.2% | 0.163 | 5.8x | +17.4% | 3.6% | +4.1% | 54% | $23.97 | 1.3 | 54% | 22% |
+| 4 | 15.5% | 0.118 | 8.0x | +23.9% | 3.4% | +2.8% | 50% | $17.40 | 1.0 | 50% | 18% |
+| 5 | 20.9% | 0.148 | 6.4x | +33.2% | 6.2% | +10.8% | 67% | $12.56 | 0.4 | 39% | 4% |
+| 6 | 21.3% | 0.144 | 6.6x | +39.8% | 7.2% | +14.0% | 67% | $10.46 | 0.3 | 41% | 3% |
+
+All stats (closer to the whole market; 2, 3 and 6 legs have no edge at a 10% hold, so Kelly stakes nothing):
+
+| legs | hit | price | EV/$ | Kelly | median 8-wk return | P(profit) | stake for +20% | × Kelly | P(lose half) |
 |---|---|---|---|---|---|---|---|---|---|
-| 2 | 32.1% | 0.304 | 3.1x | +0.6% | 0.3% | $0.33 | +0.1% | 53% | 1% |
-| 3 | 27.2% | 0.223 | 4.3x | +15.7% | 4.8% | $6.04 | +1.3% | 65% | 17% |
-| 4 | 16.7% | 0.149 | 6.3x | +5.2% | 1.0% | $1.23 | +0.3% | 57% | 5% |
-| 5 | 16.3% | 0.133 | 7.1x | +15.1% | 2.5% | $3.11 | +2.4% | 54% | 13% |
-| 6 | 11.8% | 0.130 | 7.3x | −14.5% | 0 | $0 | — | — | — |
+| 2 | 28.2% | 0.296 | −9.3% | 0 | — | — | — | — | — |
+| 3 | 19.2% | 0.221 | −17.9% | 0 | — | — | — | — | — |
+| 4 | 16.9% | 0.146 | +9.3% | 1.7% | +0.7% | 58% | $44.95 | 5.3 | 52% |
+| 5 | 17.8% | 0.128 | +30.8% | 4.8% | +5.5% | 60% | $13.54 | 0.6 | 4% |
+| 6 | 12.1% | 0.121 | −5.8% | 0 | — | — | — | — | — |
 
-And to **target +20% in 8 weeks**, the stake per combo would have to be $26.50 on 3-leg combos (1.1× Kelly;
-P(reach target) 49%, P(losing half the bankroll) 17%) or $27.58 on 5-leg ones (2.2× Kelly; P(ruin) 37%).
-Over-betting Kelly raises the chance of the target and the chance of ruin together; past 2× Kelly the
-expected growth is negative even though the expected profit is not.
+The 5- and 6-leg rows of the first table rest on 14–17 combos and look best only because those few hit; the
+second table, with 31–43 of them, disagrees. Use these as orders of magnitude: at a sane fraction of Kelly,
+combos are a few dollars per bet on a $500 bankroll, and a +20% season needs stakes at or above full Kelly,
+where the chance of losing half the bankroll is 20–50%. Over-betting Kelly raises the chance of the target
+and the chance of ruin together; past 2× Kelly expected growth is negative even when expected profit is not.
 
 ## 5. What the bot does (`combo-run`, `run --combos`)
 
@@ -159,7 +190,10 @@ expected growth is negative even though the expected profit is not.
 2. Optimise combos (beam search on expected log growth) with caps: ≤ 4 legs per game, ≤ 2 per player, ≤ 2 of one
    stat type, no pair with |correlation| > 0.85.
 3. Re-price each candidate with `p_robust` legs and the leg-count calibration factor; keep it only if, at the
-   expected quote, robust EV ≥ `min_roi` (10%) and its leg count is in `allowed_legs` ([2, 3, 4, 5]).
+   expected quote, robust EV ≥ `min_roi` (10%), robust P(win) ≥ `policy_min_p` (10%: the backtest only has
+   evidence for combos that win 10–35% of the time, and long shots are where per-leg error compounds most) and
+   its leg count is in `allowed_legs` ([2, 3, 4, 5]). Since no leg count is proven better (section 2), the
+   policy lets robust EV and growth choose the count each week rather than fixing one.
 4. Stake `combo_kelly_fraction` (0.10) × robust Kelly × bankroll, capped at `max_stake_per_combo` ($10) and
    `max_weekly_combo_frac` (5% of bankroll open at once), at most `max_combos_per_run` (3).
 5. Record as PAPER combos with the price to ask for and the most to accept; `combo-settle` settles leg by leg.

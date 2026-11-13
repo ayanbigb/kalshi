@@ -95,13 +95,26 @@ rest, script, with this QB, teammate out). Weather stays out of the model (conte
 | + matchup / situational set | 0.2735 | 0.5046 | 0.4960 | +2.11 |
 
 No gain; the model alone is slightly worse (0.0013, just outside noise) and the blend is equal within
-noise. Replay: 781 bets, +12.4% (90%: +4.8% … +20.1%) vs +7.4% for the shipped model on the same
+noise.
+
+Ablation, all three trained here on the same frame and scored on the same 48,529 markets:
+
+| variant | grid | market: model alone | blend gain [5%, 95%] |
+|---|---|---|---|
+| without the set (= shipped model) | 0.2733 | 0.5054 | +2.37 [+1.40, +3.35] |
+| structural part only (no history splits / vs-opponent / vs-defender residuals) | 0.2730 | 0.5062 | +2.33 [+1.29, +3.37] |
+| whole set | 0.2731 | 0.5064 | +2.27 [+1.31, +3.27] |
+
+Slightly better on the grid, slightly worse on the market board, in both forms. Decision: the price model
+is trained without the set (`model.drop_feats` in config.py); the columns are still built for `matchup`, the
+combo engine and PARAMETERS.md. Likely reason: the market already prices matchups, records and splits, so
+they add nothing the blend can use, while the noisy history splits cost a little accuracy. Replay: 781 bets, +12.4% (90%: +4.8% … +20.1%) vs +7.4% for the shipped model on the same
 markets: replay noise, not evidence. The columns stay in the frame because `matchup`, the combo engine
 and `PARAMETERS.md` use them. To train without them (the ablation that would restore the shipped model):
 
     python -m propbot.research no_matchup drop_feats='^(sp_|vs|opp_u_|ol_miss|rec_(gp|wpct|pd_pg|pd_l3|streak)|opp_rec_|wpct_diff|ref_tot|travel_km|tz_shift|body_clock|altitude|primetime|early_window|thursday|short_week|rest_edge|hc_new|aya_|ypr_e6|touch_per|h1_|h2_|ml_win|p_blowout|p_close|p_ot|p_trail|exp_plays|opp_d3conv|opp_drz_td|opp_dsack_rate|opp_alw_(wr|te|rb|my)|road_streak|games_missed|games_since|inj_hist|role_rank)|_m(3|5|10)$|_trend5$'
 
-The current `models/` were trained WITH them.
+The shipped `models/` are trained WITHOUT them (config `model.drop_feats`).
 
 ## What did not work
 

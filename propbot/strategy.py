@@ -358,14 +358,22 @@ def choose(res: dict, cfg: dict, bankroll: float, open_stake: float = 0.0) -> pd
     pr = res["pricer"]
     out = []
     budget = c.get("max_weekly_combo_frac", 0.05) * bankroll - open_stake
-    for r in res["combos"].sort_values("growth", ascending=False).to_dict("records"):
-        if r["n_legs"] not in c.get("allowed_legs", [2, 3, 4, 5]):
+    pool = res.get("all", res["combos"])
+    pool = pool[pool["n_legs"].isin(c.get("allowed_legs", [2, 3, 4, 5]))]
+    # cheap pre-filter on the model probability before the robust re-pricing
+    pool = pool[pool["p_model"] >= c.get("policy_min_p", 0.10)].sort_values("growth", ascending=False).head(200)
+    used = set()
+    for r in pool.to_dict("records"):
+        if used & set(r["legs"]):
             continue
         idx = list(r["legs"])
         sub = L.iloc[idx]
         # robust joint probability: same correlation model, legs at p_robust
         p_rob = _joint_with(pr, idx, sub["p_robust"].to_numpy()) * leg_factor(r["n_legs"])
         m = bet_math(p_rob, r["est_price"])
+        # only bet where the real-price backtest has evidence: its combos hit 10-35% of the time
+        if p_rob < c.get("policy_min_p", 0.10):
+            continue
         if m["ev_per_dollar"] < c.get("min_roi", 0.10) or m["kelly"] <= 0:
             continue
         stake = min(c.get("combo_kelly_fraction", 0.10) * m["kelly"] * bankroll, c.get("max_stake_per_combo", 10.0), budget)
@@ -373,6 +381,7 @@ def choose(res: dict, cfg: dict, bankroll: float, open_stake: float = 0.0) -> pd
         if n < 1:
             continue
         budget -= n * m["cost"]
+        used |= set(r["legs"])
         out.append(dict(legs=json.dumps([[t, s] for t, s in zip(sub["ticker"], sub["side"])]), desc=r["desc"], n_legs=r["n_legs"],
                         p_model=r["p_model"], p_robust=p_rob, p_fair=r["p_fair"], price=r["est_price"], max_price=r["max_price"],
                         contracts=n, stake=n * m["cost"], ev=m["ev_per_dollar"]))

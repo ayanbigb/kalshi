@@ -1,5 +1,15 @@
 # propbot — project handoff (state as of 2026-11-13)
 
+## 2026-11-13 (latest): shipped model + combo strategy results
+- Price model: trained WITHOUT the matchup/situational set (`model.drop_feats`); ablation in RESEARCH.md
+  (without 0.5054 / +2.37 blend gain, structural 0.5062 / +2.33, all 0.5064 / +2.27). Market board of the shipped
+  model: market 0.4982, model 0.5033, blend 0.4958; singles replay 737 bets +7.4% (90%: +0.1% .. +14.8%).
+- Edge realization lambda 1.19 (10-90%: 0.96 .. 1.43); legs are sized on per-stat 10th-percentile lambdas.
+- Combo backtests on real prices (470 combos): hit 21.1% vs 22.8% predicted vs 17.0% market fair. After a 10% hold
+  no leg count is reliably profitable, and swapping in a near-identical model flips the sign of several rows.
+  See STRATEGY.md before trusting any combo ROI.
+- Paper ledger: 1 open paper combo (5 legs, $8.66) for 2026 week 10; `combo-settle` after the games.
+
 ## 2026-11-13 (later): combo strategy layer
 `strategy.py` + `STRATEGY.md`: edge realization (lambda 1.13 pooled; legs sized on the 10th-percentile lambda),
 real-price combo backtests by leg count (`reports/combo_market_backtest*.json`), leg-count calibration factors

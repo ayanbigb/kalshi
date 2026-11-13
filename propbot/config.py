@@ -65,7 +65,10 @@ DEFAULTS = {
                                       # fixed weight beat the learned one walk-forward (see RESEARCH.md)
         "blend_ridge": 3000.0,
         "use_weather": False,
-        "drop_feats": None,           # regex of features to leave out of training (set from research ablations)         # wx_* features in the model (needs forecasts at scan time; see weather.py)        # shrinkage of the learned blend toward market_weight
+        # Features left out of the PRICE model. Default = the matchup / situational set: on the market board it
+        # made the model slightly worse (0.5054 -> 0.5064 log-loss, blend gain +2.37 -> +2.27; RESEARCH.md).
+        # They are still built and used by `matchup`, the combo engine and PARAMETERS.md. None = use everything.
+        "drop_feats": r"^(sp_|vs|opp_u_|ol_miss|rec_(gp|wpct|pd_pg|pd_l3|streak)|opp_rec_|wpct_diff|ref_tot|travel_km|tz_shift|body_clock|altitude|primetime|early_window|thursday|short_week|rest_edge|hc_new|aya_|ypr_e6|touch_per|h1_|h2_|ml_win|p_blowout|p_close|p_ot|p_trail|exp_plays|opp_d3conv|opp_drz_td|opp_dsack_rate|opp_alw_(wr|te|rb|my)|road_streak|games_missed|games_since|inj_hist|role_rank)|_m(3|5|10)$|_trend5$",         # wx_* features in the model (needs forecasts at scan time; see weather.py)        # shrinkage of the learned blend toward market_weight
     },
     "risk": {
         "bankroll": 500.0,            # paper bankroll; live mode reads the real balance
@@ -113,6 +116,7 @@ DEFAULTS = {
         "combo_kelly_fraction": 0.10,  # of robust Kelly; combos are far noisier than single props
         "max_weekly_combo_frac": 0.05, # total open combo stake as a fraction of bankroll
         "max_combos_per_run": 3,
+        "policy_min_p": 0.10,         # don't bet long shots the backtest never validated (its combos hit 10-35%)
         "bt_candidates": 40,          # legs per week in the real-price backtest           # legs of one stat type: a model bias on that stat would sink them together
     },
 }

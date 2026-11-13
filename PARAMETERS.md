@@ -4,24 +4,24 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 
 | status | meaning | count |
 |---|---|---|
-| model | pre-game feature the prop model uses | 126 |
+| model | pre-game feature the price model uses | 82 |
+| context | computed and shown in `matchup`, available to the combo engine, but left out of the price model (weather, and the matchup set that did not help on the market board; `model.drop_feats`) | 57 |
 | combo | computed per combo by the combo engine | 47 |
-| proxy | close stand-in from free data, in the model | 27 |
 | market | computed from Kalshi quotes at scan time | 25 |
+| proxy | close stand-in from free data, in the price model | 23 |
 | none | not available from free data | 16 |
-| context | computed, shown in `matchup` / combos, kept out of the model on purpose | 9 |
 
 | # | parameter | status | implemented as |
 |---|---|---|---|
 | 1 | Season avg passing yards | model | `passing_yards_szn` |
-| 2 | Last 3 games passing yards | model | `passing_yards_m3` |
-| 3 | Last 5 games passing yards | model | `passing_yards_m5` |
-| 4 | Last 10 games passing yards | model | `passing_yards_m10` |
+| 2 | Last 3 games passing yards | context | `passing_yards_m3` |
+| 3 | Last 5 games passing yards | context | `passing_yards_m5` |
+| 4 | Last 10 games passing yards | context | `passing_yards_m10` |
 | 5 | Season avg pass attempts | model | `attempts_szn` |
 | 6 | Season avg completions | model | `completions_szn` |
 | 7 | Completion % | model | `comp_pct_e6` |
 | 8 | Yards per attempt | model | `ypa_e6` |
-| 9 | Adjusted yards per attempt | model | `aya_e6` |
+| 9 | Adjusted yards per attempt | context | `aya_e6` |
 | 10 | Passing TDs per game | model | `passing_tds_e6`, `passing_tds_szn` |
 | 11 | Interceptions per game | model | `passing_interceptions_e6`, `int_per_att_e6` |
 | 12 | Rushing yards per game | model | `rushing_yards_e6`, `rushing_yards_szn` |
@@ -31,10 +31,10 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 16 | Receptions per game | model | `receptions_e6`, `receptions_szn` |
 | 17 | Targets per game | model | `targets_e6`, `targets_szn` |
 | 18 | Catch % | model | `catch_rate_e6` |
-| 19 | Yards per reception | model | `ypr_e6` |
+| 19 | Yards per reception | context | `ypr_e6` |
 | 20 | Receiving TDs per game | model | `receiving_tds_e6` |
-| 21 | First-half production | model | `h1_yds_e6`, `h1_share_e6` |
-| 22 | Second-half production | model | `h2_yds_e6` |
+| 21 | First-half production | context | `h1_yds_e6`, `h1_share_e6` |
+| 22 | Second-half production | context | `h2_yds_e6` |
 | 23 | Red-zone touches | model | `rz_targets_e6`, `rz_carries_e6` |
 | 24 | Goal-line opportunities | model | `gl_carries_e6`, `ez_targets_e6` |
 | 25 | Fantasy points per game | model | `fantasy_points_ppr_e6`, `xfp_e6` |
@@ -56,8 +56,8 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 41 | No-huddle snap participation | proxy | `off_no_huddle_e4`, `offense_pct_e6` |
 | 42 | Touches per offensive snap | model | `touch_per_snap_e6`, `tgt_per_snap_e6`, `carry_per_snap_e6` |
 | 43 | Average time on field | proxy | `offense_snaps_e6` |
-| 44 | Snap share last 3 games | model | `offense_pct_m3` |
-| 45 | Usage trend last 5 games | model | `target_share_trend5`, `carry_share_trend5` |
+| 44 | Snap share last 3 games | context | `offense_pct_m3` |
+| 45 | Usage trend last 5 games | context | `target_share_trend5`, `carry_share_trend5` |
 | 46 | Opp passing yards allowed/g | model | `opp_alw_tm_pass_yds_e5` |
 | 47 | Opp rushing yards allowed/g | model | `opp_alw_tm_rush_yds_e5` |
 | 48 | Opp receiving yards allowed (to position) | model | `pa_rec_yds_e5` |
@@ -73,21 +73,21 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 58 | Opp interception rate | model | `opp_alw_off_ints_e5` |
 | 59 | Opp missed tackle rate | model | `opp_dmiss_e5`, `opp_u_def_mtk` |
 | 60 | Opp explosive play rate allowed | model | `opp_alw_off_explosive_e5` |
-| 61 | Opp 3rd-down conversion allowed | model | `opp_d3conv_e5` |
-| 62 | Opp red-zone defense | model | `opp_drz_td_e5` |
+| 61 | Opp 3rd-down conversion allowed | context | `opp_d3conv_e5` |
+| 62 | Opp red-zone defense | context | `opp_drz_td_e5` |
 | 63 | Opp defensive DVOA | none | DVOA is FTN's proprietary metric; EPA/play allowed (#64) is the public equivalent |
 | 64 | Opp EPA/play allowed | model | `opp_alw_off_epa_play_e5`, `opp_alw_off_db_epa_e5`, `opp_alw_off_ru_epa_e5` |
 | 65 | Opp man coverage frequency | none | coverage charting (FTN/PFF) is paid; nflverse participation ended 2023 |
 | 66 | Opp zone coverage frequency | none | same as #65 |
-| 67 | Opp yards allowed to WR1 | model | `opp_alw_wr1_e5` |
-| 68 | Opp yards allowed to WR2 | model | `opp_alw_wr2_e5` |
+| 67 | Opp yards allowed to WR1 | context | `opp_alw_wr1_e5` |
+| 68 | Opp yards allowed to WR2 | context | `opp_alw_wr2_e5` |
 | 69 | Opp yards allowed to TEs | model | `opp_alw_te1_e5`, `pa_rec_yds_e5` |
 | 70 | Opp yards allowed to RBs | model | `opp_alw_rb1_e5`, `pa_rush_yds_e5` |
 | 71 | Game total | model | `total_line` |
 | 72 | Team implied total | model | `implied_total` |
 | 73 | Opp implied total | model | `opp_implied_total` |
 | 74 | Point spread | model | `spread`, `abs_spread` |
-| 75 | Moneyline win probability | model | `ml_win_prob` |
+| 75 | Moneyline win probability | context | `ml_win_prob` |
 | 76 | Expected offensive plays | model | `exp_plays`, `off_plays_e4` |
 | 77 | Expected possessions | proxy | `exp_plays`, `oppoff_off_plays_e4` |
 | 78 | Expected plays per drive | none | drive ids are not in the cached play-by-play columns |
@@ -97,12 +97,12 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 82 | Neutral-game pass rate | model | `off_neutral_pass_e4`, `off_proe_e4` |
 | 83 | Neutral-game rush rate | model | `off_neutral_pass_e4` |
 | 84 | Expected game script | model | `spread`, `p_trail_big` |
-| 85 | P(blowout) | model | `p_blowout` |
-| 86 | P(close game) | model | `p_close` |
+| 85 | P(blowout) | context | `p_blowout` |
+| 86 | P(close game) | context | `p_close` |
 | 87 | Expected time of possession | proxy | `off_plays_e4`, `spread` |
 | 88 | First-half implied scoring | proxy | `implied_total` |
 | 89 | Second-half implied scoring | proxy | `implied_total`, `spread` |
-| 90 | P(overtime) | model | `p_ot_proxy` |
+| 90 | P(overtime) | context | `p_ot_proxy` |
 | 91 | Temperature | context | `wx_temp` |
 | 92 | Feels-like temperature | context | `wx_temp`, `wx_wind`, `wx_humidity` |
 | 93 | Wind speed | context | `wx_wind` |
@@ -113,7 +113,7 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 98 | Snowfall | context | `wx_snow` |
 | 99 | Humidity | context | `wx_humidity` |
 | 100 | Atmospheric pressure | none | not fetched (no measurable link to props in the literature) |
-| 101 | Stadium elevation | model | `altitude` |
+| 101 | Stadium elevation | context | `altitude` |
 | 102 | Indoor vs outdoor | model | `indoors` |
 | 103 | Field surface | model | `turf` |
 | 104 | Stadium home-field advantage | proxy | `is_home`, `spread` |
@@ -122,47 +122,47 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 107 | Practice participation Wed | proxy | `inj_practice` |
 | 108 | Practice participation Thu | proxy | `inj_practice` |
 | 109 | Practice participation Fri | model | `inj_practice` |
-| 110 | Injury history | model | `inj_hist17` |
-| 111 | Games missed this season | model | `games_missed_szn` |
+| 110 | Injury history | context | `inj_hist17` |
+| 111 | Games missed this season | context | `games_missed_szn` |
 | 112 | Expected snap restriction | proxy | `inj_practice`, `games_since_absence` |
 | 113 | Starting QB availability | model | `qb_changed`, `qb_games_career` |
-| 114 | Offensive line injury count | model | `ol_miss` |
-| 115 | Starting LT available | proxy | `ol_miss` |
-| 116 | Starting RT available | proxy | `ol_miss` |
-| 117 | Starting C available | proxy | `ol_miss` |
+| 114 | Offensive line injury count | context | `ol_miss` |
+| 115 | Starting LT available | context | `ol_miss` |
+| 116 | Starting RT available | context | `ol_miss` |
+| 117 | Starting C available | context | `ol_miss` |
 | 118 | Starting WR availability | model | `vac_tgt_wr` |
 | 119 | Starting RB availability | model | `vac_tgt_rb`, `vac_carry` |
 | 120 | Starting TE availability | model | `vac_tgt_te` |
-| 121 | Opp CB1 availability | model | `opp_u_cb1_share`, `opp_u_cb1_ypt` |
-| 122 | Opp CB2 availability | model | `opp_u_miss_cb` |
-| 123 | Opp safety availability | model | `opp_u_miss_s` |
-| 124 | Opp linebacker availability | model | `opp_u_miss_lb` |
+| 121 | Opp CB1 availability | context | `opp_u_cb1_share`, `opp_u_cb1_ypt` |
+| 122 | Opp CB2 availability | context | `opp_u_miss_cb` |
+| 123 | Opp safety availability | context | `opp_u_miss_s` |
+| 124 | Opp linebacker availability | context | `opp_u_miss_lb` |
 | 125 | Replacement quality | model | `opp_u_cb_ypt`, `opp_u_s_ypt`, `target_share_e6_norm` |
 | 126 | Expected defensive personnel package | none | personnel groupings need participation data (ended 2023) |
-| 127 | Offensive line continuity | proxy | `ol_miss` |
-| 128 | Workload after recent injury | model | `games_since_absence`, `offense_pct_m3` |
-| 129 | Career vs opponent | model | `vsopp_n`, `vsopp_res_rr_yds`, `vsopp_res_pass_yds` |
-| 130 | Last 3 meetings vs opponent | model | `vsopp_last3_res` |
-| 131 | Home performance | model | `sp_home_res` |
-| 132 | Away performance | model | `sp_home_res` |
-| 133 | Divisional games | model | `sp_div_res` |
-| 134 | Prime-time games | model | `sp_prime_res`, `primetime` |
-| 135 | Cold weather | model | `sp_cold_res` |
-| 136 | Rain / bad weather | model | `sp_badwx_res` |
-| 137 | Vs top-10 defenses | model | `sp_deftier_res` |
-| 138 | Vs bottom-10 defenses | model | `sp_deftier_res` |
-| 139 | After a loss | model | `sp_afterloss_res` |
-| 140 | After a win | model | `sp_afterloss_res` |
-| 141 | With current starting QB | model | `sp_qb_res`, `sp_qb_n` |
+| 127 | Offensive line continuity | context | `ol_miss` |
+| 128 | Workload after recent injury | context | `games_since_absence`, `offense_pct_m3` |
+| 129 | Career vs opponent | context | `vsopp_n`, `vsopp_res_rr_yds`, `vsopp_res_pass_yds` |
+| 130 | Last 3 meetings vs opponent | context | `vsopp_last3_res` |
+| 131 | Home performance | context | `sp_home_res` |
+| 132 | Away performance | context | `sp_home_res` |
+| 133 | Divisional games | context | `sp_div_res` |
+| 134 | Prime-time games | context | `sp_prime_res`, `primetime` |
+| 135 | Cold weather | context | `sp_cold_res` |
+| 136 | Rain / bad weather | context | `sp_badwx_res` |
+| 137 | Vs top-10 defenses | context | `sp_deftier_res` |
+| 138 | Vs bottom-10 defenses | context | `sp_deftier_res` |
+| 139 | After a loss | context | `sp_afterloss_res` |
+| 140 | After a win | context | `sp_afterloss_res` |
+| 141 | With current starting QB | context | `sp_qb_res`, `sp_qb_n` |
 | 142 | Without primary teammate | model | `sp_mate_out_res`, `vac_tgt` |
 | 143 | Vs man coverage | none | see #65 |
 | 144 | Vs zone coverage | none | see #65 |
-| 145 | Short rest | model | `sp_shortrest_res`, `short_week` |
+| 145 | Short rest | context | `sp_shortrest_res`, `short_week` |
 | 146 | Days since last game | model | `days_since_last`, `rest` |
-| 147 | Travel distance | model | `travel_km` |
-| 148 | Time-zone change | model | `tz_shift`, `body_clock` |
-| 149 | Consecutive road games | model | `road_streak` |
-| 150 | Similar game scripts | model | `sp_script_res` |
+| 147 | Travel distance | context | `travel_km` |
+| 148 | Time-zone change | context | `tz_shift`, `body_clock` |
+| 149 | Consecutive road games | context | `road_streak` |
+| 150 | Similar game scripts | context | `sp_script_res` |
 | 151 | EPA | model | `passing_epa_e6`, `rushing_epa_e6`, `receiving_epa_e6` |
 | 152 | CPOE | model | `passing_cpoe_e6`, `ngs_cpoe_e6` |
 | 153 | Success rate | model | `off_success_e4` |

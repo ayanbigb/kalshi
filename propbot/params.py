@@ -282,10 +282,12 @@ P = [
 
 
 def coverage(write: bool = True, out=print) -> pd.DataFrame:
-    from .features import feature_columns
+    from . import model
+    from .config import load_config
     path = DATA / "frame.parquet"
     df = pd.read_parquet(path) if path.exists() else pd.DataFrame()
-    fc = set(feature_columns(df)) if len(df) else set()
+    model.OPTS["drop_feats"] = load_config()["model"].get("drop_feats")
+    fc = set(model.model_features(df)) if len(df) else set()
     rows = []
     for i, name, kind, spec in P:
         if isinstance(spec, list):
@@ -308,8 +310,9 @@ def coverage(write: bool = True, out=print) -> pd.DataFrame:
                  "The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate with "
                  "`python -m propbot params`.", "",
                  "| status | meaning | count |", "|---|---|---|"]
-        meaning = {"model": "pre-game feature the prop model uses", "proxy": "close stand-in from free data, in the model",
-                   "context": "computed, shown in `matchup` / combos, kept out of the model on purpose",
+        meaning = {"model": "pre-game feature the price model uses", "proxy": "close stand-in from free data, in the price model",
+                   "context": "computed and shown in `matchup`, available to the combo engine, but left out of the price "
+                              "model (weather, and the matchup set that did not help on the market board; `model.drop_feats`)",
                    "combo": "computed per combo by the combo engine", "market": "computed from Kalshi quotes at scan time",
                    "none": "not available from free data", "MISSING": "expected column not in the frame (bug)"}
         for k, v in counts.items():

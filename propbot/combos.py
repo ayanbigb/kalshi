@@ -495,7 +495,7 @@ def suggest(px: pd.DataFrame, cfg: dict, top: int = 10, log=print) -> dict:
         d["desc"] = [" + ".join(pr.legs.loc[list(t), "label"]) for t in d["legs"]]
     short = pick(res, top)
     short["risk"] = [risk_report(pr, t, cfg) for t in short["legs"]]
-    return dict(legs=pr.legs, combos=short, best_by_size=best, pricer=pr,
+    return dict(legs=pr.legs, combos=short, best_by_size=best, pricer=pr, all=res,
                 portfolio=portfolio_drawdown(short, bank))
 
 
