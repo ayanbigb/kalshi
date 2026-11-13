@@ -20,7 +20,8 @@
 - Live combos 2026-11-13 lean entirely on NO/under legs (pass att, pass yds, INT, TD unders). The model sits
   below the market on overs; whether that's edge or model bias is unproven -> run the market board first.
   Combos are capped at 2 legs per stat type for that reason.
-- Settled-quote cache download (for `market-backtest`) was started and is resumable; ~20k archived tickers.
+- Market board with the merged model (47,731 quotes): market 0.4982, model 0.5046, blend 0.4960 (gain +2.11)
+  vs model-robustness 0.5033 / 0.4958 (+2.32). No improvement; see RESEARCH.md for the ablation command.
 - Expert ranks: nflreadpy's github.com/.../raw URL is refused on some networks; `data._raw_download` now pulls
   the dynastyprocess files from raw.githubusercontent.com into data/external/.
 

@@ -80,6 +80,29 @@ they are worth about 0.0015 on the market board.
 settled markets with quotes) to the 2026 ones. Everything about the market is now judged on
 two seasons instead of nine weeks.
 
+## 2026-11-13: the matchup / situational parameter set (merged branch)
+
+~150 more inputs from a 250-item prop checklist (`PARAMETERS.md`): player vs this opponent, coach,
+former team and the specific defenders he will face; opposing coverage and pass-rush quality and missing
+regulars; own OL health; team records; last-3/5/10 windows, half splits, usage trends; game-script
+probabilities; opponent 3rd-down / red-zone / role-specific yards allowed; availability history; and
+situational splits (home/away, division, primetime, cold, bad weather, defense tier, after a loss, short
+rest, script, with this QB, teammate out). Weather stays out of the model (context only).
+
+| version | grid | market: model alone | blend | blend gain |
+|---|---|---|---|---|
+| shipped (model-robustness) | 0.2733 | 0.5033 | 0.4958 | +2.32 |
+| + matchup / situational set | 0.2735 | 0.5046 | 0.4960 | +2.11 |
+
+No gain; the model alone is slightly worse (0.0013, just outside noise) and the blend is equal within
+noise. Replay: 781 bets, +12.4% (90%: +4.8% … +20.1%) vs +7.4% for the shipped model on the same
+markets: replay noise, not evidence. The columns stay in the frame because `matchup`, the combo engine
+and `PARAMETERS.md` use them. To train without them (the ablation that would restore the shipped model):
+
+    python -m propbot.research no_matchup drop_feats='^(sp_|vs|opp_u_|ol_miss|rec_(gp|wpct|pd_pg|pd_l3|streak)|opp_rec_|wpct_diff|ref_tot|travel_km|tz_shift|body_clock|altitude|primetime|early_window|thursday|short_week|rest_edge|hc_new|aya_|ypr_e6|touch_per|h1_|h2_|ml_win|p_blowout|p_close|p_ot|p_trail|exp_plays|opp_d3conv|opp_drz_td|opp_dsack_rate|opp_alw_(wr|te|rb|my)|road_streak|games_missed|games_since|inj_hist|role_rank)|_m(3|5|10)$|_trend5$'
+
+The current `models/` were trained WITH them.
+
 ## What did not work
 
 - **Learned model/market blend** (`propbot/blend.py`). A ridge logistic that starts at the
