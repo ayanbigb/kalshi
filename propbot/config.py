@@ -65,10 +65,11 @@ DEFAULTS = {
                                       # fixed weight beat the learned one walk-forward (see RESEARCH.md)
         "blend_ridge": 3000.0,
         "use_weather": False,
-        # Features left out of the PRICE model. Default = the matchup / situational set: on the market board it
+        # Features left out of the PRICE model: the FTN charting / participation set (tied on the market board,
+        # RESEARCH.md) and the matchup / situational set: on the market board it
         # made the model slightly worse (0.5054 -> 0.5064 log-loss, blend gain +2.37 -> +2.27; RESEARCH.md).
         # They are still built and used by `matchup`, the combo engine and PARAMETERS.md. None = use everything.
-        "drop_feats": r"^(sp_|vs|opp_u_|ol_miss|rec_(gp|wpct|pd_pg|pd_l3|streak)|opp_rec_|wpct_diff|ref_tot|travel_km|tz_shift|body_clock|altitude|primetime|early_window|thursday|short_week|rest_edge|hc_new|aya_|ypr_e6|touch_per|h1_|h2_|ml_win|p_blowout|p_close|p_ot|p_trail|exp_plays|opp_d3conv|opp_drz_td|opp_dsack_rate|opp_alw_(wr|te|rb|my)|road_streak|games_missed|games_since|inj_hist|role_rank)|_m(3|5|10)$|_trend5$",         # wx_* features in the model (needs forecasts at scan time; see weather.py)        # shrinkage of the learned blend toward market_weight
+        "drop_feats": r"^(sp_|vs|opp_u_|ol_miss|rec_(gp|wpct|pd_pg|pd_l3|streak)|opp_rec_|wpct_diff|ref_tot|travel_km|tz_shift|body_clock|altitude|primetime|early_window|thursday|short_week|rest_edge|hc_new|aya_|ypr_e6|touch_per|h1_|h2_|ml_win|p_blowout|p_close|p_ot|p_trail|exp_plays|opp_d3conv|opp_drz_td|opp_dsack_rate|opp_alw_(wr|te|rb|my)|road_streak|games_missed|games_since|inj_hist|role_rank)|_m(3|5|10)$|_trend5$|^ftn_|^opp_ftn_|^route_part_prev$|^tprr_car$|^yprr_car$|^ypt_(man|zone)_car$|^man_minus_zone$|^opp_man_rate_prev$|^man_zone_matchup$",         # wx_* features in the model (needs forecasts at scan time; see weather.py)        # shrinkage of the learned blend toward market_weight
     },
     "risk": {
         "bankroll": 500.0,            # paper bankroll; live mode reads the real balance
@@ -89,6 +90,11 @@ DEFAULTS = {
         "max_drawdown": 0.25,         # from high-water mark -> circuit breaker
         "min_minutes_to_kickoff": 5,
         "skip_questionable": True,
+    },
+    "health": {
+        "max_model_staleness_weeks": 3,
+        "min_match_rate": 0.90,
+        "max_median_disagreement": 0.10,
     },
     "combos": {
         "min_legs": 2, "max_legs": 6,
@@ -131,12 +137,39 @@ def _deep_update(a: dict, b: dict) -> dict:
     return a
 
 
+# Risk profiles (choose with `profile:` in config.yaml). Evidence: `python -m propbot tune-risk`, RESEARCH.md.
+# balanced / aggressive use edge-realization trust by market-price band, fitted walk-forward. On 3,539 real-quote
+# bets (2025-26, rules fixed in advance): ROI +7.7% (90% CI +2.5..+13.2%). Over 26 weeks from $500:
+#   balanced   (0.20 Kelly) median +71%, 5th pct +14%, P(losing season) 2%, 95th-pct drawdown 22%
+#   aggressive (0.50 Kelly) median +124%, 5th pct +12%, P(losing season) 3%, 95th-pct drawdown 37%
+# (fills at the quoted price assumed; see RESEARCH.md).
+PROFILES = {
+    "conservative": {"model": {"trust": 1.0},
+                     "risk": {"kelly_fraction": 0.10, "min_edge": 0.025, "max_disagreement": 0.20}},
+    "balanced": {"model": {"trust": "auto"},
+                 "risk": {"kelly_fraction": 0.20, "min_edge": 0.015, "max_disagreement": 0.15,
+                          "max_stake_frac": 0.05, "max_total_exposure": 0.5, "max_open_positions": 100}},
+    "aggressive": {"model": {"trust": "auto"},
+                   "risk": {"kelly_fraction": 0.50, "min_edge": 0.015, "max_disagreement": 0.15,
+                            "max_stake_frac": 0.08, "max_total_exposure": 0.8, "max_open_positions": 150,
+                            "max_stake_per_player": 80.0, "max_stake_per_game": 200.0,
+                            "daily_loss_limit": 150.0, "max_drawdown": 0.40}},
+}
+
+
 def load_config() -> dict:
     import copy
     cfg = copy.deepcopy(DEFAULTS)
     p = ROOT / "config.yaml"
-    if p.exists():
-        _deep_update(cfg, yaml.safe_load(p.read_text()) or {})
+    user = (yaml.safe_load(p.read_text()) or {}) if p.exists() else {}
+    prof = user.get("profile") or cfg.get("profile")
+    if prof:
+        _deep_update(cfg, copy.deepcopy(PROFILES[prof]))
+    _deep_update(cfg, user)
+    if cfg["risk"].get("max_stake_frac"):  # per-trade cap that scales with the bankroll
+        cfg["risk"]["max_stake_per_trade"] = min(cfg["risk"].get("max_stake_per_trade", 1e9),
+                                                 cfg["risk"]["max_stake_frac"] * cfg["risk"]["bankroll"]) \
+            if "max_stake_per_trade" in user.get("risk", {}) else cfg["risk"]["max_stake_frac"] * cfg["risk"]["bankroll"]
     return cfg
 
 

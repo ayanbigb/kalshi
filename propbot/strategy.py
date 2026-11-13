@@ -39,6 +39,7 @@ from .config import DATA, MODELS, REPORTS, load_config
 from .edge import expit, fee_per_contract, logit
 
 ER_PATH = MODELS / "edge_realization.json"
+TRUST_EDGES = [0.0, 0.15, 0.3, 0.5, 0.7, 0.85, 1.0]
 
 
 # ----------------------------------------------------------------------------- 1. edge realization
@@ -78,6 +79,21 @@ def fit_realization(d: pd.DataFrame | None = None, n_boot: int = 300, k_shrink: 
         out["by_stat"][s] = dict(n=int(len(g)), raw=ls, shrunk=shr, lo=shr - (lam - lo))
     for S, g in d.groupby("season"):
         out["by_season"][int(S)] = _fit_lambda(g["y"].to_numpy(), g["lm"].to_numpy(), g["gap"].to_numpy())
+    # `trust` for the singles bot: fitted on every quote the risk tuning replays (all spreads), which is how it
+    # was validated walk-forward in tuning.py
+    from .tuning import _load
+    t = _load()
+    out["trust"] = _fit_lambda(t["y"].to_numpy(), t["lm"].to_numpy(), t["gap"].to_numpy())
+    # trust by market-price band: realization is weakest in the efficient middle of a ladder (validated
+    # walk-forward in RESEARCH.md: ROI +4.8% -> +7.7%), shrunk toward the pooled value
+    band = pd.cut(t["p_market"], TRUST_EDGES, labels=False)
+    out["trust_edges"] = TRUST_EDGES
+    out["trust_bands"] = []
+    for k in range(len(TRUST_EDGES) - 1):
+        g = t[band == k]
+        lk = _fit_lambda(g["y"].to_numpy(), g["lm"].to_numpy(), g["gap"].to_numpy()) if len(g) > 200 else out["trust"]
+        w = len(g) / (len(g) + 3000)
+        out["trust_bands"].append(float(w * lk + (1 - w) * out["trust"]))
     ER_PATH.write_text(json.dumps(out, indent=1))
     return out
 
@@ -354,7 +370,12 @@ def choose(res: dict, cfg: dict, bankroll: float, open_stake: float = 0.0) -> pd
     c = cfg["combos"]
     er = load_realization()
     L = res["legs"].copy()
-    L["p_robust"] = robust_prob(np.where(L["side"] == "yes", L["p_final"], 1 - L["p_final"]), L["p_mkt"], L["stat"], er, "lo")
+    # lambda_lo was measured on the plain blend's gap, so apply it there (p_final may carry the singles `trust`)
+    from .edge import blend
+    yes_blend = blend(L["p_model"].to_numpy() if "p_model_yes" not in L else L["p_model_yes"].to_numpy(),
+                      L["p_market"].to_numpy(), cfg["model"]["market_weight"])
+    yes_rob = robust_prob(yes_blend, L["p_market"].to_numpy(), L["stat"], er, "lo")
+    L["p_robust"] = np.where(L["side"] == "yes", yes_rob, 1 - yes_rob)
     pr = res["pricer"]
     out = []
     budget = c.get("max_weekly_combo_frac", 0.05) * bankroll - open_stake

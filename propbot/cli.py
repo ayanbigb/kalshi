@@ -222,6 +222,53 @@ def cmd_combo_settle(a):
           if len(st) else "no paper combos yet")
 
 
+def cmd_tune_risk(a):
+    from . import tuning
+    r = tuning.run()
+    print(f"walk-forward rules: {r['walk_forward']}\nshipped rules: {r['shipped_rules']}")
+    print(r["table"][["frac", "cap_trade", "cap_week", "bets", "actual_return", "median_return", "p5_return", "p_loss",
+                      "p95_max_dd", "usable"]].round(3).to_string(index=False))
+
+
+def cmd_account(a):
+    """Read-only look at the Kalshi account. Never places, amends or cancels anything."""
+    from .kalshi import Kalshi, orders_unlocked
+    k = Kalshi("prod")
+    print(f"order lock: {'UNLOCKED (KALSHI_ALLOW_ORDERS=1)' if orders_unlocked() else 'LOCKED - only GET requests can be sent'}")
+    if not k.has_key:
+        print("no API key in this environment: set KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY (or KALSHI_PRIVATE_KEY_PATH)")
+        return
+    snap = k.account_snapshot()
+    (REPORTS / "account_snapshot.json").write_text(json.dumps(snap, indent=1, default=str))
+    b = snap.get("balance", {})
+    if "error" in b:
+        print("balance:", b["error"]); return
+    bal = float(b["balance_dollars"]) if "balance_dollars" in b else b.get("balance", 0) / 100
+    print(f"cash balance ${bal:,.2f}  portfolio value {b.get('portfolio_value_dollars', b.get('portfolio_value', 'n/a'))}")
+    pos = snap.get("positions", {})
+    mp = pos.get("market_positions", []) if isinstance(pos, dict) else []
+    print(f"open market positions: {len(mp)}; event positions: {len(pos.get('event_positions', []) if isinstance(pos, dict) else [])}")
+    for x in mp[:25]:
+        print(f"  {x.get('ticker'):55s} position {x.get('position_fp', x.get('position'))}  exposure {x.get('market_exposure_dollars', x.get('market_exposure'))}"
+              f"  realized {x.get('realized_pnl_dollars', x.get('realized_pnl'))}")
+    for name in ("orders", "fills", "settlements"):
+        v = snap.get(name)
+        print(f"{name}: {len(v) if isinstance(v, list) else v}")
+    f = snap.get("fills") or []
+    if isinstance(f, list) and f:
+        df = pd.DataFrame(f)
+        cols = [c for c in ("created_time", "ticker", "side", "action", "count_fp", "yes_price_dollars", "no_price_dollars", "is_taker") if c in df.columns]
+        print(df[cols].head(15).to_string(index=False))
+    st = snap.get("settlements") or []
+    if isinstance(st, list) and st:
+        sd = pd.DataFrame(st)
+        print(f"settled markets: {len(sd)}; columns: {list(sd.columns)[:12]}")
+    for name in ("rfqs", "quotes", "api_limits"):
+        v = snap.get(name)
+        print(f"{name}: {json.dumps(v, default=str)[:300]}")
+    print("full snapshot saved to reports/account_snapshot.json (git-ignored)")
+
+
 def cmd_params(a):
     from .params import coverage
     coverage(write=True)
@@ -378,6 +425,8 @@ def main():
     s = sub.add_parser("combo-run", help="policy: choose, size and PAPER-record combos"); s.add_argument("--rescan", action="store_true")
     s.set_defaults(f=cmd_combo_run)
     sub.add_parser("combo-settle", help="settle paper combos leg by leg").set_defaults(f=cmd_combo_settle)
+    sub.add_parser("tune-risk", help="walk-forward rules + bankroll risk table on real quotes").set_defaults(f=cmd_tune_risk)
+    sub.add_parser("account", help="READ-ONLY view of your Kalshi account (balance, positions, fills, settlements)").set_defaults(f=cmd_account)
     sub.add_parser("params", help="coverage of the 250-parameter checklist -> PARAMETERS.md").set_defaults(f=cmd_params)
     s = sub.add_parser("kill", help="engage (or --off release) the kill switch")
     s.add_argument("--off", action="store_true"); s.add_argument("--cancel", action="store_true", help="also cancel resting live orders")

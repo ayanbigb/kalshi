@@ -71,7 +71,30 @@ def final_prob(p_model, p_market, stat, cfg: dict, beta=None) -> np.ndarray:
         beta = blender.load() if beta is None else beta
         if beta is not None:
             return blender.apply(beta, p_model, p_market, stat)
-    return blend(p_model, p_market, cfg["model"]["market_weight"])
+    p = blend(p_model, p_market, cfg["model"]["market_weight"])
+    trust = model_trust(cfg, p_market)
+    if np.any(trust != 1.0):  # lean further from the market by the measured edge-realization factor
+        lm = logit(np.asarray(p_market, float))
+        p = expit(lm + trust * (logit(np.asarray(p, float)) - lm))
+    return p
+
+
+def model_trust(cfg: dict, p_market=None):
+    """model.trust: a number, or "auto" = the edge-realization factor fitted on settled quotes
+    (models/edge_realization.json), per market-price band when available, clipped to [1, 2.5].
+    1.0 = the plain blend."""
+    t = cfg["model"].get("trust", 1.0)
+    if t != "auto":
+        return float(t)
+    from .strategy import load_realization
+    er = load_realization()
+    if not er:
+        return 1.0
+    if p_market is not None and er.get("trust_bands"):
+        idx = np.clip(np.searchsorted(er["trust_edges"], np.asarray(p_market, float), side="right") - 1,
+                      0, len(er["trust_bands"]) - 1)
+        return np.clip(np.asarray(er["trust_bands"])[idx], 1.0, 2.5)
+    return float(np.clip(er.get("trust", er["pooled"]), 1.0, 2.5))
 
 
 def add_edges(px: pd.DataFrame, cfg: dict, now: pd.Timestamp | None = None, p_final=None) -> pd.DataFrame:
@@ -154,6 +177,11 @@ def run_once(live: bool = False, refresh: bool = False, log=print) -> pd.DataFra
         log("  HALTED: " + "; ".join(tripped))
         return pd.DataFrame()
     px = scan(cfg, refresh=refresh, log=log)
+    from . import health
+    bad = health.check(px, cfg, match_rate=px["player_id"].notna().mean() if len(px) and "player_id" in px else None)
+    if bad:
+        log("  HEALTH CHECK FAILED, no orders: " + "; ".join(bad))
+        return pd.DataFrame()
     if px.empty:
         return px
     px.to_parquet(REPORTS / "last_scan.parquet")

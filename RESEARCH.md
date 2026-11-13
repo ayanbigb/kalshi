@@ -116,6 +116,77 @@ and `PARAMETERS.md` use them. To train without them (the ablation that would res
 
 The shipped `models/` are trained WITHOUT them (config `model.drop_feats`).
 
+## 2026-11-13: how much risk the singles strategy can take (tuning.py, `tune-risk`)
+
+Edge realization says the market under-weights the blend's disagreement (lambda ~1.2-1.9 depending on the
+quote set). Three ways of using that, replayed on 2025-26 real quotes with fees, bets fixed in advance:
+
+| rules | bets | ROI per bet | 90% CI | 2025 | 2026 |
+|---|---|---|---|---|---|
+| shipped (blend, min_edge 0.025, max_dis 0.25) | 1,008 | +6.4% | +0.4% … +11.8% | −10.1% | +10.2% |
+| rules re-picked each week from a grid (walk-forward) | 3,595 | +4.8% | | | |
+| trust = lambda fitted on earlier weeks only, shipped gates | 3,556 | +5.6% | +2.7% … +8.8% | +4.2% | +6.1% |
+| trust = lambda walk-forward, min_edge 0.015, max_dis 0.15 | 3,558 | +4.8% | +0.5% … +9.4% | +7.7% | +3.9% |
+
+Grid re-picking was unstable (it flipped between trust 1.75 and 2.5) and is not used. The lambda-trust
+rules have no free knob and are positive in both seasons. Bankroll replay of the last row (26 weeks, $500,
+2,000 week-resampled seasons, fills at the quote assumed):
+
+| Kelly | median return | 5th pct | P(losing season) | 95th-pct drawdown |
+|---|---|---|---|---|
+| 0.10 | +30% | +5% | 2% | 10% |
+| 0.20 | +54% | +9% | 2% | 19% |
+| 0.35 | +53% | −3% | 6% | 28% |
+| 0.50 | +74% | −6% | 7% | 37% |
+| 0.75 | +94% | −10% | 8% | 45% |
+
+**Trust by price band.** Splitting those bets by price showed YES bets at 30–70¢ losing (50–70¢: won 54.5%
+vs 64.9% predicted, ~3 SE). Edge realization by market price: 0–15% 1.99, 15–30% 1.66, 30–50% 1.69,
+50–70% **1.30**, 70–85% 1.70, 85–100% 1.13; the efficient middle of a ladder realizes the least. Trust fitted
+per band (walk-forward, shrunk toward the pooled value with 3,000 pseudo-rows):
+
+| trust | bets | ROI | 90% CI | 2025 | 2026 | YES @ 30–70¢ |
+|---|---|---|---|---|---|---|
+| one value | 3,558 | +4.8% | +0.4% … +9.4% | +7.7% | +3.9% | −5.6% |
+| by price band | 3,539 | **+7.7%** | **+2.5% … +13.2%** | +11.5% | +6.6% | −0.5% |
+
+| Kelly (banded) | median 26-wk return | 5th pct | P(losing season) | 95th-pct drawdown |
+|---|---|---|---|---|
+| 0.10 | +40% | +12% | 1% | 11% |
+| 0.20 | +71% | +14% | 2% | 22% |
+| 0.35 | +88% | +11% | 3% | 28% |
+| 0.50 | +124% | +12% | 3% | 37% |
+| 0.75 | +174% | +15% | 3% | 43% |
+
+Shipped as profiles (config.py PROFILES): `balanced` = 0.20 Kelly, `aggressive` = 0.50 Kelly (default in
+config.yaml), both `trust: auto` (banded, models/edge_realization.json), min_edge 0.015, max_dis 0.15, stake caps
+scaled to the bankroll. 0.75 Kelly pushes the 95th-pct drawdown past 40% for the gain; not offered.
+Caveats: the replay assumes every bet fills at the last quote (live depth is now checked with
+`Kalshi.fill_price`), and ~135 bets a week is a lot of positions to manage.
+
+## 2026-11-13: Kalshi price paths (does a line move say whether the model is right?)
+
+Hourly prices for 34,700 settled 2026 markets (the 30 hours before kickoff). Edge realization split by how
+the market moved over the last ~24h: toward the model 1.59, away from it 1.55, barely moved 1.18. And the move
+itself has no predictive power beyond the final price (lambda on the move: −0.06). The market prices its own
+momentum; the bot neither chases nor fades line moves. Not used.
+
+## 2026-11-13: FTN charting and participation (charting.py)
+
+New free data: FTN charting 2022+ (first-read targets, catchable / contested / created receptions, screens,
+play-action, out-of-pocket, interception-worthy and throwaway rates, box counts, RPOs, blitz and pass-rusher
+counts) as rolling features, and nflverse participation 2016-2025 (routes, man/zone) as season-lagged traits
+only (route participation, targets and yards per route run, yards per target vs man and vs zone, opponent man
+rate last season), because participation is published after the season and would be stale live.
+
+| variant | grid | market: model alone | blend gain |
+|---|---|---|---|
+| shipped | 0.2733 | 0.5054 | +2.37 [+1.40, +3.35] |
+| + charting / participation | 0.2735 | 0.5056 | +2.39 [+1.39, +3.40] |
+
+A tie. Better for rush yds, rec, td, pass TDs; worse for pass yds and INTs. Not adopted (picking per stat after
+seeing this would be fitting the test set); the columns are built and shown in `matchup`.
+
 ## What did not work
 
 - **Learned model/market blend** (`propbot/blend.py`). A ridge logistic that starts at the

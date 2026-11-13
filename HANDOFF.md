@@ -1,5 +1,15 @@
 # propbot — project handoff (state as of 2026-11-13)
 
+## 2026-11-13 (evening): account access, risk profiles, new data
+- Kalshi client is READ-ONLY by default: any non-GET request raises ReadOnlyError unless KALSHI_LIVE_TRADING=1
+  AND KALSHI_ALLOW_ORDERS=1. `account` shows balance/positions/fills/settlements/RFQs (needs KALSHI_API_KEY_ID +
+  KALSHI_PRIVATE_KEY or _PATH; not connected yet). `Kalshi.fill_price` walks the public order book.
+- Risk: `profile: aggressive` in config.yaml (0.5 Kelly, banded trust, min_edge 0.015, max_dis 0.15). Validated
+  walk-forward on real quotes: ROI +7.7% (90% CI +2.5..+13.2%), 26-wk median +124%, P(loss) 3%, DD95 37%.
+  `tune-risk` + RESEARCH.md. health.py halts runs on stale model / low match rate / abnormal model-market gap.
+- New data tried, not adopted (ties): FTN charting + participation (charting.py; in matchup only), Kalshi price
+  paths (market prices its own moves). Shipped price model unchanged (models/ = validated baseline).
+
 ## 2026-11-13 (latest): shipped model + combo strategy results
 - Price model: trained WITHOUT the matchup/situational set (`model.drop_feats`); ablation in RESEARCH.md
   (without 0.5054 / +2.37 blend gain, structural 0.5062 / +2.33, all 0.5064 / +2.27). Market board of the shipped

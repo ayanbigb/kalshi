@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from . import context, defense, situational
+from . import charting, context, defense, situational
 from .config import FIRST_SEASON, SKILL_POS
 from .data import current_season
 
@@ -549,6 +549,8 @@ def build(raw: dict, include_future: bool = True, qb_override: dict | None = Non
     b = defense.add_defense(b, raw, tg, current_season(), log=log)
     # ---- rolling windows, half splits, game-environment probabilities, situational splits (situational.py)
     b = situational.add(b, raw, tg, log=log)
+    # ---- FTN charting (rolling, 2022+) and participation (season-lagged traits) (charting.py)
+    b = charting.add(b, raw, tg, log=log)
     return b.sort_values(["kickoff", "game_id", "team", "player_id"]).reset_index(drop=True)
 
 

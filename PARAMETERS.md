@@ -5,11 +5,11 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | status | meaning | count |
 |---|---|---|
 | model | pre-game feature the price model uses | 82 |
-| context | computed and shown in `matchup`, available to the combo engine, but left out of the price model (weather, and the matchup set that did not help on the market board; `model.drop_feats`) | 57 |
+| context | computed and shown in `matchup`, available to the combo engine, but left out of the price model (weather, and the matchup set that did not help on the market board; `model.drop_feats`) | 66 |
 | combo | computed per combo by the combo engine | 47 |
 | market | computed from Kalshi quotes at scan time | 25 |
-| proxy | close stand-in from free data, in the price model | 23 |
-| none | not available from free data | 16 |
+| proxy | close stand-in from free data, in the price model | 21 |
+| none | not available from free data | 9 |
 
 | # | parameter | status | implemented as |
 |---|---|---|---|
@@ -39,8 +39,8 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 24 | Goal-line opportunities | model | `gl_carries_e6`, `ez_targets_e6` |
 | 25 | Fantasy points per game | model | `fantasy_points_ppr_e6`, `xfp_e6` |
 | 26 | Offensive snap % | model | `offense_pct_e6`, `offense_pct_e2` |
-| 27 | Routes run per game | none | route counts are charting data (PFF/FTN paid); snap share x team dropbacks is the proxy in #28 |
-| 28 | Route participation rate | proxy | `offense_pct_e6`, `off_dropbacks_e4` |
+| 27 | Routes run per game | context | `route_part_prev`, `tprr_car` |
+| 28 | Route participation rate | context | `route_part_prev` |
 | 29 | Target share | model | `target_share_e6`, `target_share_e6_norm` |
 | 30 | Air-yard share | model | `air_yards_share_e6`, `ngs_iay_share_e6` |
 | 31 | aDOT | model | `adot_e6`, `ngs_iay_e6` |
@@ -48,7 +48,7 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 33 | Separation at target | proxy | `ngs_sep_e6`, `ngs_cushion_e6` |
 | 34 | Red-zone target share | proxy | `rz_targets_e6`, `off_rz_plays_e4` |
 | 35 | Third-down target share | model | `third_targets_e6` |
-| 36 | First-read target % | none | first-read charting is proprietary (PFF/Fantasy Points) |
+| 36 | First-read target % | context | `ftn_first_read_share_e6`, `ftn_first_read_pg_e6` |
 | 37 | Designed rushing attempts | proxy | `carries_e6`, `scrambles_e6` |
 | 38 | Scramble rate | model | `scramble_share_e6`, `scrambles_e6` |
 | 39 | Short-yardage rushing share | proxy | `gl_carries_e6`, `carry_share_e6` |
@@ -68,7 +68,7 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 53 | Opp yards per reception allowed | proxy | `opp_u_db_ypt`, `opp_alw_off_yac_e5` |
 | 54 | Opp completion % allowed | model | `opp_alw_off_cp_e5`, `opp_u_db_cmp` |
 | 55 | Opp pressure rate | model | `opp_dpress_e5`, `opp_u_press_pg` |
-| 56 | Opp blitz rate | model | `opp_dblitz_e5` |
+| 56 | Opp blitz rate | model | `opp_dblitz_e5`, `opp_ftn_dblitz_e5` |
 | 57 | Opp sack rate | model | `opp_dsack_rate_e5`, `opp_alw_off_sacks_e5` |
 | 58 | Opp interception rate | model | `opp_alw_off_ints_e5` |
 | 59 | Opp missed tackle rate | model | `opp_dmiss_e5`, `opp_u_def_mtk` |
@@ -77,8 +77,8 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 62 | Opp red-zone defense | context | `opp_drz_td_e5` |
 | 63 | Opp defensive DVOA | none | DVOA is FTN's proprietary metric; EPA/play allowed (#64) is the public equivalent |
 | 64 | Opp EPA/play allowed | model | `opp_alw_off_epa_play_e5`, `opp_alw_off_db_epa_e5`, `opp_alw_off_ru_epa_e5` |
-| 65 | Opp man coverage frequency | none | coverage charting (FTN/PFF) is paid; nflverse participation ended 2023 |
-| 66 | Opp zone coverage frequency | none | same as #65 |
+| 65 | Opp man coverage frequency | context | `opp_man_rate_prev` |
+| 66 | Opp zone coverage frequency | context | `opp_man_rate_prev` |
 | 67 | Opp yards allowed to WR1 | context | `opp_alw_wr1_e5` |
 | 68 | Opp yards allowed to WR2 | context | `opp_alw_wr2_e5` |
 | 69 | Opp yards allowed to TEs | model | `opp_alw_te1_e5`, `pa_rec_yds_e5` |
@@ -138,7 +138,7 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 123 | Opp safety availability | context | `opp_u_miss_s` |
 | 124 | Opp linebacker availability | context | `opp_u_miss_lb` |
 | 125 | Replacement quality | model | `opp_u_cb_ypt`, `opp_u_s_ypt`, `target_share_e6_norm` |
-| 126 | Expected defensive personnel package | none | personnel groupings need participation data (ended 2023) |
+| 126 | Expected defensive personnel package | context | `opp_ftn_dbox_e5`, `opp_ftn_drushers_e5` |
 | 127 | Offensive line continuity | context | `ol_miss` |
 | 128 | Workload after recent injury | context | `games_since_absence`, `offense_pct_m3` |
 | 129 | Career vs opponent | context | `vsopp_n`, `vsopp_res_rr_yds`, `vsopp_res_pass_yds` |
@@ -155,8 +155,8 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 140 | After a win | context | `sp_afterloss_res` |
 | 141 | With current starting QB | context | `sp_qb_res`, `sp_qb_n` |
 | 142 | Without primary teammate | model | `sp_mate_out_res`, `vac_tgt` |
-| 143 | Vs man coverage | none | see #65 |
-| 144 | Vs zone coverage | none | see #65 |
+| 143 | Vs man coverage | context | `ypt_man_car`, `man_zone_matchup` |
+| 144 | Vs zone coverage | context | `ypt_zone_car`, `man_zone_matchup` |
 | 145 | Short rest | context | `sp_shortrest_res`, `short_week` |
 | 146 | Days since last game | model | `days_since_last`, `rest` |
 | 147 | Travel distance | context | `travel_km` |
@@ -178,10 +178,10 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 163 | Pressure-to-sack conversion | proxy | `sack_rate_e6`, `pressure_rate_e6` |
 | 164 | QB pressure rate faced | model | `pressure_rate_e6`, `qb_pressure_rate_e6` |
 | 165 | QB time to throw | model | `ngs_ttt_e6`, `qb_ngs_ttt_e6` |
-| 166 | QB pocket time | proxy | `ngs_ttt_e6` |
-| 167 | QB accuracy by depth | proxy | `ngs_cpoe_e6`, `ngs_p_iay_e6`, `bad_throw_rate_e6` |
+| 166 | QB pocket time | proxy | `ngs_ttt_e6`, `ftn_oop_rate_e6` |
+| 167 | QB accuracy by depth | proxy | `ngs_cpoe_e6`, `ngs_p_iay_e6`, `bad_throw_rate_e6`, `ftn_intw_rate_e6` |
 | 168 | Receiver target efficiency | model | `ypt_e6`, `xcatch_rate_e6` |
-| 169 | Yards per route run | proxy | `ypt_e6`, `offense_pct_e6` |
+| 169 | Yards per route run | context | `yprr_car` |
 | 170 | Rush yards over expected | model | `ngs_ryoe_att_e6`, `rush_yds_oe_e6` |
 | 171 | Receiving yards over expected | model | `rec_yds_oe_e6` |
 | 172 | Passing yards over expected | model | `pass_yds_oe_e6` |
@@ -224,7 +224,7 @@ The 250-item Kalshi NFL prop/combo checklist mapped to this code. Regenerate wit
 | 209 | Market liquidity | market | yes_ask_size / no_ask_size |
 | 210 | Open interest | market | open_interest |
 | 211 | Trading volume | market | volume |
-| 212 | Price move 5 min | market | move_5m (needs logged scans) |
+| 212 | Price move 5 min | market | move_5m (needs logged scans); 24h move tested: fully priced, no signal (RESEARCH.md) |
 | 213 | Price move 1 hour | market | move_1h |
 | 214 | Price move 24 hours | market | move_24h |
 | 215 | Move since open | market | move_open (since first logged) |

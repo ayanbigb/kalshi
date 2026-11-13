@@ -1,4 +1,7 @@
 # Overrides for propbot/config.py DEFAULTS. Anything omitted keeps its default.
+# Risk profile: conservative | balanced | aggressive (see PROFILES in propbot/config.py and RESEARCH.md).
+# Settings below override the profile.
+profile: aggressive
 kalshi:
   env: prod            # prod | demo  (where LIVE orders go; quotes always come from prod)
 model:
@@ -7,7 +10,4 @@ model:
   learned_blend: false # true = use the per-stat blend that market-backtest fits (it has not beaten the fixed weight yet)
 risk:
   bankroll: 500        # paper bankroll in dollars
-  kelly_fraction: 0.20
-  min_edge: 0.025      # dollars of expected profit per contract, after fees
-  max_stake_per_trade: 25
-  daily_loss_limit: 75
+  # kelly_fraction, min_edge, stake caps and loss limits come from the profile

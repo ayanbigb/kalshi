@@ -18,12 +18,12 @@ PBP_COLS = [
     "pass_oe", "xpass", "down", "two_point_attempt", "receiver_player_id", "rusher_player_id",
     "passer_player_id", "td_player_id", "td_team", "wp", "half_seconds_remaining",
     "shotgun", "no_huddle", "cp", "xyac_mean_yardage", "yards_after_catch", "qb_hit", "first_down",
-    "score_differential", "game_seconds_remaining", "ydstogo", "tackled_for_loss", "pass_length",
+    "score_differential", "game_seconds_remaining", "ydstogo", "tackled_for_loss", "pass_length", "play_id",
 ]
 # bump when the cached columns of a dataset change, so stale parquet files are not reused
-CACHE_VERSION = {"pbp": "v2"}
+CACHE_VERSION = {"pbp": "v3"}
 # first season each optional dataset exists for
-FIRST_AVAILABLE = {"ngs_receiving": 2016, "ngs_rushing": 2016, "ngs_passing": 2016,
+FIRST_AVAILABLE = {"ftn": 2022, "participation": 2016, "ngs_receiving": 2016, "ngs_rushing": 2016, "ngs_passing": 2016,
                    "pfr_rec": 2018, "pfr_rush": 2018, "pfr_pass": 2018, "pfr_def": 2018}
 FFOPP_COLS = ["season", "week", "game_id", "player_id", "receptions_exp", "rec_yards_gained_exp", "rec_touchdown_exp",
               "rush_yards_gained_exp", "rush_touchdown_exp", "pass_yards_gained_exp", "pass_touchdown_exp",
@@ -64,6 +64,17 @@ def _fetch(name: str, season: int | None) -> pl.DataFrame:
             pl.col("season").cast(pl.Int32), pl.col("week").cast(pl.Int32))
     if name.startswith("ngs_"):
         return nfl.load_nextgen_stats([season], name[4:]).filter(pl.col("week") > 0)
+    if name == "ftn":
+        return nfl.load_ftn_charting([season]).select(
+            "nflverse_game_id", "nflverse_play_id", "season", "week", "n_defense_box", "is_play_action", "is_screen_pass",
+            "is_rpo", "is_qb_out_of_pocket", "is_interception_worthy", "is_throw_away", "read_thrown", "is_catchable_ball",
+            "is_contested_ball", "is_created_reception", "is_drop", "n_blitzers", "n_pass_rushers", "is_motion")
+    if name == "participation":
+        if season > 2025:  # published after the season ends
+            raise ValueError("not published yet")
+        return nfl.load_participation([season]).select(
+            "nflverse_game_id", "play_id", "possession_team", "defense_man_zone_type", "defense_coverage_type",
+            "offense_players", "route", "was_pressure", "defenders_in_box")
     if name.startswith("pfr_"):
         return nfl.load_pfr_advstats([season], name[4:], "week")
     if name == "depth_charts":
@@ -160,7 +171,7 @@ def load_all(refresh: bool = False, first: int = FIRST_SEASON) -> dict[str, pd.D
         "rosters_weekly": load("rosters_weekly", [current_season()], refresh),
     }
     for extra in ("ff_opportunity", "ngs_receiving", "ngs_rushing", "ngs_passing",
-                  "pfr_rec", "pfr_rush", "pfr_pass", "pfr_def", "depth_charts"):
+                  "pfr_rec", "pfr_rush", "pfr_pass", "pfr_def", "depth_charts", "ftn", "participation"):
         raw[extra] = load(extra, seasons, refresh)
     raw["ff_rankings"] = load("ff_rankings", refresh=refresh)
     raw["ff_playerids"] = load("ff_playerids", refresh=refresh)

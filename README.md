@@ -122,6 +122,17 @@ Weekly rhythm: `update` → `train --no-backtest` on Tuesday, then `run --loop 1
 evening through kickoff. Not earlier: the injury report and the weekly expert ranks, two of the
 model's best inputs, are not out until Friday.
 
+## Risk profiles, account access, health checks
+
+- `profile:` in `config.yaml` picks `conservative`, `balanced` or `aggressive` (default). Evidence and the risk
+  table for each are in RESEARCH.md (`python -m propbot tune-risk` regenerates it).
+- `python -m propbot account` is a READ-ONLY view of your Kalshi account. Every request that is not a GET
+  (orders, cancels, RFQs, quotes) is refused by the client unless `KALSHI_LIVE_TRADING=1` AND
+  `KALSHI_ALLOW_ORDERS=1` are both set. The key can be a file (`KALSHI_PRIVATE_KEY_PATH`) or the PEM text in
+  `KALSHI_PRIVATE_KEY` (one line, newlines as `\n`).
+- Before any order, `health.py` stops the run if the model is stale, fewer than 90% of markets matched,
+  prices are missing, or the median model/market gap is outside its historical range.
+
 ## Risk engine
 
 Six independent gates, all must pass (`propbot/risk.py`, thresholds in `config.yaml`):

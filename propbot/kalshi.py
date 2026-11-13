@@ -21,6 +21,16 @@ class KalshiError(RuntimeError):
     pass
 
 
+class ReadOnlyError(KalshiError):
+    pass
+
+
+def orders_unlocked() -> bool:
+    """Anything that is not a GET (orders, cancels, RFQs, quotes, transfers) is refused unless
+    KALSHI_ALLOW_ORDERS=1 is set *in addition to* KALSHI_LIVE_TRADING=1. Default: read-only."""
+    return env("KALSHI_ALLOW_ORDERS") == "1" and env("KALSHI_LIVE_TRADING") == "1"
+
+
 class Kalshi:
     def __init__(self, environment: str = "prod"):
         self.env = environment
@@ -32,14 +42,25 @@ class Kalshi:
 
     # ---- auth
     @property
+    def has_key(self) -> bool:
+        return bool(self.key_id and (env("KALSHI_PRIVATE_KEY_PATH") or env("KALSHI_PRIVATE_KEY")))
+
+    @property
     def can_trade(self) -> bool:
-        return bool(self.key_id and env("KALSHI_PRIVATE_KEY_PATH"))
+        return self.has_key and orders_unlocked()
 
     def _private_key(self):
+        """PEM from KALSHI_PRIVATE_KEY (the key text itself; literal \\n allowed, as environment settings
+        store one line) or from the file at KALSHI_PRIVATE_KEY_PATH."""
         if self._key is None:
             from cryptography.hazmat.primitives import serialization
-            with open(env("KALSHI_PRIVATE_KEY_PATH"), "rb") as f:
-                self._key = serialization.load_pem_private_key(f.read(), password=None)
+            text = env("KALSHI_PRIVATE_KEY")
+            if text:
+                data = text.replace("\\n", "\n").strip().encode()
+            else:
+                with open(env("KALSHI_PRIVATE_KEY_PATH"), "rb") as f:
+                    data = f.read()
+            self._key = serialization.load_pem_private_key(data, password=None)
         return self._key
 
     def _headers(self, method: str, path: str) -> dict:
@@ -58,6 +79,8 @@ class Kalshi:
 
     # ---- transport
     def _req(self, method: str, path: str, params=None, body=None, auth=False):
+        if method.upper() != "GET" and not orders_unlocked():
+            raise ReadOnlyError(f"read-only: refused {method} {path} (set KALSHI_LIVE_TRADING=1 and KALSHI_ALLOW_ORDERS=1 to allow)")
         path = PREFIX + path
         for attempt in range(9):
             wait = 0.12 - (time.time() - self._last)  # stay well under the basic read limit
@@ -105,6 +128,21 @@ class Kalshi:
     def orderbook(self, ticker: str) -> dict:
         return self._req("GET", f"/markets/{ticker}/orderbook")
 
+    def fill_price(self, ticker: str, side: str, contracts: int) -> dict:
+        """Walk the public order book: average price to BUY `contracts` of `side` right now.
+        To buy YES you lift NO bids (yes price = 1 - no bid); to buy NO you lift YES bids."""
+        ob = self.orderbook(ticker).get("orderbook_fp", {})
+        other = ob.get("no_dollars" if side == "yes" else "yes_dollars") or []
+        levels = sorted(((1 - float(p), float(q)) for p, q in other), key=lambda t: t[0])
+        need, cost, filled = contracts, 0.0, 0
+        for px, qty in levels:
+            take = min(need, int(qty))
+            cost += take * px; filled += take; need -= take
+            if need <= 0:
+                break
+        return dict(filled=filled, avg_price=cost / filled if filled else float("nan"),
+                    best=levels[0][0] if levels else float("nan"), worst=px if filled else float("nan"))
+
     def candles(self, tickers: list[str], start_ts: int, end_ts: int, interval_min: int = 60) -> dict[str, list]:
         out = {}
         for i in range(0, len(tickers), 100):
@@ -128,6 +166,37 @@ class Kalshi:
     def positions(self) -> list[dict]:
         return self._req("GET", "/portfolio/positions", params={"count_filter": "position", "limit": 1000},
                          auth=True).get("market_positions", [])
+
+    def _get_all(self, path: str, key: str, params: dict | None = None, max_pages: int = 50) -> list[dict]:
+        out, cursor = [], None
+        for _ in range(max_pages):
+            p = dict(params or {}, limit=200, **({"cursor": cursor} if cursor else {}))
+            d = self._req("GET", path, params=p, auth=True)
+            out += d.get(key) or []
+            cursor = d.get("cursor")
+            if not cursor:
+                break
+        return out
+
+    def account_snapshot(self) -> dict:
+        """Everything readable about the account. GET requests only."""
+        out = {}
+        for name, fn in (
+            ("balance", lambda: self._req("GET", "/portfolio/balance", auth=True)),
+            ("positions", lambda: self._req("GET", "/portfolio/positions",
+                                            params={"count_filter": "position", "limit": 1000}, auth=True)),
+            ("orders", lambda: self._get_all("/portfolio/orders", "orders")),
+            ("fills", lambda: self._get_all("/portfolio/fills", "fills", max_pages=10)),
+            ("settlements", lambda: self._get_all("/portfolio/settlements", "settlements", max_pages=10)),
+            ("rfqs", lambda: self._req("GET", "/communications/rfqs", auth=True)),
+            ("quotes", lambda: self._req("GET", "/communications/quotes", auth=True)),
+            ("api_limits", lambda: self._req("GET", "/account/limits", auth=True)),
+        ):
+            try:
+                out[name] = fn()
+            except KalshiError as e:
+                out[name] = {"error": str(e)[:200]}
+        return out
 
     def buy(self, ticker: str, side: str, count: int, price: float, ioc: bool = True) -> dict:
         """Buy `count` contracts of YES or NO at a limit `price` (dollars, e.g. 0.56).
