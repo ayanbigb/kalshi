@@ -1,78 +1,75 @@
-# propbot — project handoff (state as of 2026-11-12, session 2)
+# propbot — project handoff (state as of 2026-11-13)
 
-## Session 2 additions (see README "Matchup and context features" and "Combos")
-- New modules: `weather.py`, `context.py`, `defense.py`, `combos.py`, `report.py`. Frame is now ~340 cols.
-- New CLI: `matchup <player>`, `combos [--same-game --team X --max-legs N --yes-only]`, `fit-copula`,
-  `combo-backtest`, `weather-backfill`.
-- Models retrained through 2026 wk 9 with backtest seasons 2024-26 (faster). Walk-forward logloss:
-  pass_yds .347 (naive .354), pass_att .459 (.466), pass_comp .392 (.399), rush_yds .125 (.139),
-  rec .190 (.198), rec_yds .218 (.228), td .172 (.180); pass_tds/pass_int still ~= naive.
-  New matchup features are roughly neutral overall — no big jump; treat them as context, not magic.
-- Copula (models/copula.json) vs independence on unseen 2026 same-game combos: logloss 3-leg .346 -> .341,
-  4-leg .214 -> .209 (reports/combo_backtest.json).
-- Historical weather backfill only got ~330 games before Open-Meteo rate limits; history otherwise uses the
-  schedule's temp/wind. Run `weather-backfill` (resumable) then `train` to give gusts/rain/snow full history.
-  Open-Meteo's forecast quota is shared by the egress IP and was exhausted on 2026-11-12; the scan then
-  proceeds without weather.
-- Live scan 2026-11-12: 4,014 open markets, 99% matched. The model sits ~2-3 pts below the market on overs
-  across most stats, so suggested combos lean toward NO/under legs. Unverified whether that's market over-bias
-  or model miscalibration in 2026 — check with `market-backtest` once weeks 10+ settle.
-- Combo quotes come via RFQ; `combos.hold` (10%) is a guess. No combo order code exists — build in the app.
+## 2026-11-13: branches merged
+`claude/peaceful-knuth-u3qs0s` now contains both lines of work:
+- from `model-robustness`: opportunity / NGS / PFR features, depth charts, expert ranks, stage 1b spread model,
+  cross-stat projections, hit rates, 3 bagged ladders, learned blend (off), research harness, two-season market board.
+- from this branch: `context.py` (record, vs opponent/coach/former team, referee, schedule spot, travel),
+  `defense.py` (expected opposing defenders, coverage/pass-rush quality, missing regulars, OL health, player vs
+  defenders), `weather.py` (Open-Meteo forecast + reanalysis; context only, `model.use_weather` off),
+  `combos.py` (copula correlations, Monte-Carlo pricing, leg/rung search, risk report, Kalshi eligibility),
+  `report.py` (`matchup`), plus new `situational.py` (windows, half splits, game-script probabilities, opponent
+  extras, availability, situational splits), `quotes.py` (scan quote log -> price movement / volatility /
+  slippage) and `params.py` (250-parameter checklist -> PARAMETERS.md: 234 implemented, 16 need paid data).
+- The new feature blocks have NOT been judged on the market board (`market-backtest` + `research --compare`).
+  RESEARCH.md's rule is that a feature stays only if it helps there; do that before trusting them.
+- Expert ranks: nflreadpy's github.com/.../raw URL is refused on some networks; `data._raw_download` now pulls
+  the dynastyprocess files from raw.githubusercontent.com into data/external/.
 
 
 Kalshi NFL player-prop model + trading bot. Python 3.13, venv at `.venv/`. Run everything as
-`.venv/bin/python -m propbot <command>`. Nothing is committed to git yet (repo has no commits).
+`.venv/bin/python -m propbot <command>`. Work lives on branch `model-robustness`.
 
 ## What it does
-1. Pulls nflverse data (player stats, PBP, snaps, injuries, rosters, schedules) 2015–2026 into a parquet cache (`data/raw/`, no API key).
-2. Builds one row per (skill player, game) with only pre-kickoff features (`propbot/features.py`, ~250 cols: rolling EWMs, team/opp pace & EPA, QB context, vacated targets/carries, injury flags, Vegas lines, weather).
-3. Two-stage LightGBM model (`propbot/model.py`):
-   - Stage 1: regressor per stat → projection `mu`.
-   - Stage 2: one monotone classifier per stat, strike is a feature → P(stat > k) for any Kalshi "N+" rung. Trained on out-of-fold stage-1 projections (no leakage). Isotonic calibrators in `models/calibrators.joblib`.
+1. Pulls free data into a parquet cache (`data/raw/`, no API key): nflverse player stats, PBP, snaps, injuries, rosters, schedules, depth charts, Next Gen Stats, PFR charting; ffverse opportunity stats; FantasyPros expert consensus ranks.
+2. Builds one row per (skill player, game) with only pre-kickoff features (`propbot/features.py`, 387 features).
+3. Three-stage LightGBM model (`propbot/model.py`):
+   - Stage 1: regressor per stat → projection `mu` (plus helper targets: targets, snap share).
+   - Stage 1b: regressor on the size of the miss → `sd`.
+   - Stage 2: three monotone classifiers per stat, averaged; strike is a feature → P(stat > k) for any Kalshi "N+" rung. Inputs are out-of-fold stage-1 outputs (no leakage). Isotonic calibrators in `models/calibrators.joblib`.
 4. Pulls open Kalshi markets (public API), parses + matches players (`markets.py`), prices them, blends with market mid (`market_weight` 0.7, in logit space), optional sportsbook re-leveling via The Odds API (`odds.py` — **written but never tested, no key**).
-5. Risk engine (`risk.py`): edge after Kalshi quadratic fee, price band, max model/market disagreement, spread/size, history, skip Questionable, one rung per player ladder, per-player/game/total exposure caps, daily loss limit, drawdown breaker, kill switch file `KILL`. Fractional Kelly 0.20.
+5. Risk engine (`risk.py`): unchanged. Edge after fee, price band, max disagreement, spread/size, history, skip Questionable, one rung per ladder, exposure caps, daily loss limit, drawdown breaker, kill switch file `KILL`. Fractional Kelly 0.20.
 6. Executes paper (default) or live orders; SQLite ledger at `data/ledger.sqlite`.
 
-## Stats covered (Kalshi series)
-pass_yds KXNFLPASSYDS, pass_tds KXNFLPASSTDS, pass_att KXNFLPASSATT, pass_comp KXNFLPASSCOMP, pass_int KXNFLPASSINT,
-rush_yds KXNFLRSHYDS, rush_att KXNFLRSHATT, rec KXNFLREC, rec_yds KXNFLRECYDS, rr_yds KXNFLRRYDS, td KXNFLTD.
-
 ## Files
-- `propbot/config.py` — paths, STATS definitions/strike grids, risk DEFAULTS; `config.yaml` overrides them.
-- `data.py` nflverse cache · `features.py` frame · `model.py` train/PropModel · `markets.py` Kalshi parsing · `kalshi.py` API v2 client (RSA-PSS/Ed25519 signing) · `edge.py` fees/EV/Kelly · `risk.py` gates · `ledger.py` SQLite · `odds.py` sportsbook anchor · `bot.py` scan/run/settle/market backtest · `cli.py` commands.
-- `models/` trained models (gitignored), `reports/` backtests, `data/kalshi_settled.parquet` settled Kalshi quotes.
+- `config.py` paths, STATS, risk DEFAULTS; `config.yaml` overrides.
+- `data.py` cache · `features.py` frame · `model.py` train/PropModel · `markets.py` Kalshi parsing · `kalshi.py` API client (now also the archive endpoints) · `edge.py` fees/EV/Kelly · `blend.py` learned model/market blend (off by default) · `risk.py` gates · `ledger.py` SQLite · `odds.py` sportsbook anchor · `bot.py` scan/run/settle/market backtest · `research.py` experiment harness · `cli.py` commands.
+- `RESEARCH.md` — every experiment, what it was worth, what was dropped. Read it before changing the model.
+- `models/`, `data/` git-ignored. `reports/backtest.json`, `reports/market_backtest.json` tracked.
 
 ## CLI
 ```
-update            refresh current-season nflverse data
-train [--refresh] [--no-backtest]   features + walk-forward backtest + fit final models (~10 min)
+update            refresh current-season data
+train [--refresh] [--no-backtest]   features + walk-forward backtest + fit final models (~30 min on 4 cores)
 report            print backtest metrics
 project [--player X] [--team KC]    upcoming-slate projections
 scan [--top N] [--all] [--refresh]  price open Kalshi markets, place nothing
 run [--live] [--loop MIN]           settle + scan + risk + orders (paper unless --live)
 settle / status [--live]
-market-backtest [--min-volume 25]   model vs real Kalshi pre-kickoff quotes
+market-backtest [--refresh]         model vs real Kalshi pre-kickoff quotes, 2025 week 5 onward
 kill [--off] [--cancel]             kill switch
+python -m propbot.research NAME key=value   run + score a model variant; --compare A B to compare saved runs
 ```
 
-## Results so far
-Models trained through **2026 week 9**. Walk-forward backtest (2023–2026): model beats naive logloss on every stat except pass_tds and pass_int (roughly tied); tradeable-strike AUC 0.67 (td) – 0.80; calibration error ≤ 0.011.
+## Results
+Models trained through **2026 week 9**.
 
-Market backtest vs real Kalshi pre-kickoff quotes (2026 wk 1–9, 41,971 markets, 136 games):
-- logloss model 0.4769, market 0.4662, **blend 0.4648** (model alone is worse than market; the blend beats it).
-- Strategy: 801 bets, 53.6% win, ROI **+9.0%** (90% CI +0.7% … +17.5%), P&L +$700 on $7.8k staked.
-- Good: rec (+19%, 239 bets), rush_att (+23%), td (+40%, 35 bets). Bad: rec_yds (−4.8%, 221 bets), rr_yds (−28%), pass_comp (−45%, small n).
+Against real Kalshi quotes (47,731 tradeable settled markets, 2025 wk 9 – 2026 wk 9, all walk-forward):
+- log-loss: market 0.4982, model 0.5033, **70/30 blend 0.4958**. Before this round the model was 0.5097 and the blend 0.4969 on the same markets.
+- Replay of the default rules: 737 bets, ROI **+7.4%** (90% CI +0.1% … +14.8%). 2026 +10.1% (642 bets), 2025 −10.9% (95 bets). The old model on the same markets: +4.6% (−2.9% … +12.0%).
+- A near-identical variant replayed at +12.9%. The replay is that noisy; trust the log-loss more than the ROI.
 
-Last `scan` (2026-11-12): 2,783 markets priced, 16 passed all gates. Ledger is empty — **no paper or live trades placed yet.**
+Last `scan` (2026-11-12, a Thursday): 2,956 open markets, 98% matched to players. Ledger is empty — **no paper or live trades placed yet.**
 
 ## Setup / safety
-- `.env` (from `.env.example`): `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_LIVE_TRADING=0`, `ODDS_API_KEY`. Live orders need BOTH `KALSHI_LIVE_TRADING=1` AND `--live`. No `.env` exists yet.
-- Current config: prod env, bankroll $500, kelly 0.20, min_edge $0.025/contract, max $25/trade, daily loss limit $75.
-- New machine: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m propbot train --refresh` (data/ and models/ are gitignored, so regenerate or copy them).
+- `.env` (from `.env.example`): `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, `KALSHI_LIVE_TRADING=0`, `ODDS_API_KEY`. Live orders need BOTH `KALSHI_LIVE_TRADING=1` AND `--live`. No `.env` exists. Nothing in this round touched an account; only public market data was read.
+- Config unchanged: prod env, bankroll $500, kelly 0.20, min_edge $0.025/contract, max $25/trade, daily loss limit $75, market_weight 0.7.
+- New machine: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m propbot train --refresh`, then `market-backtest` (first run downloads ~20k archived quotes, ~45 min, resumable).
+- Old model files are not compatible with the new code. Retrain after pulling.
 
 ## Open ideas / next steps
-- Paper trade (`run --loop 15`) for a few weeks before going live; then `settle`/`status`.
-- Consider disabling or raising thresholds for rr_yds, rec_yds, pass_comp (negative backtest ROI).
-- Get an Odds API key and actually test `odds.py`.
-- Retrain weekly (`update` then `train`) as new weeks come in.
-- Make an initial git commit.
+- Paper trade (`run --loop 15`, Friday evening through kickoff) for a few weeks; then `settle`/`status`.
+- Weather forecasts (temp/wind are excluded because the schedule file only has them after the game).
+- Get an Odds API key and test `odds.py`.
+- Log each scan's quotes to build a price history with real depth.
+- Retrain weekly (`update` then `train`); `market-backtest --refresh` every few weeks.

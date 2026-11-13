@@ -42,7 +42,8 @@ def parse(markets: list[dict]) -> pd.DataFrame:
     for m in markets:
         parts = m["ticker"].split("-")
         stat = SERIES_TO_STAT.get(parts[0])
-        if stat is None or len(parts) < 4 or m.get("strike_type") != "greater" or m.get("floor_strike") is None:
+        # 2025 listings use strike_type "structured" and a different title; the sub-title is stable across both
+        if stat is None or len(parts) < 4 or m.get("strike_type") not in ("greater", "structured") or m.get("floor_strike") is None:
             continue
         teams = split_teams(parts[1][7:])
         if not teams:
@@ -54,7 +55,8 @@ def parse(markets: list[dict]) -> pd.DataFrame:
         nb, na = _f(m.get("no_bid_dollars")), _f(m.get("no_ask_dollars"))
         rows.append(dict(
             ticker=m["ticker"], event=m["event_ticker"], series=parts[0], stat=stat, away=away, home=home, team=team,
-            player=str(m.get("title", "")).split(":")[0].strip(), strike=float(m["floor_strike"]),
+            gdate=parts[1][:7],
+            player=str(m.get("yes_sub_title") or m.get("title", "")).split(":")[0].strip(), strike=float(m["floor_strike"]),
             yes_bid=yb, yes_ask=ya, no_bid=nb, no_ask=na,
             yes_ask_size=_f(m.get("yes_ask_size_fp")), no_ask_size=_f(m.get("yes_bid_size_fp")),
             volume=_f(m.get("volume_fp")), open_interest=_f(m.get("open_interest_fp")),
@@ -68,11 +70,17 @@ def attach_players(mk: pd.DataFrame, frame: pd.DataFrame) -> pd.DataFrame:
     `frame` is the feature frame restricted to the candidate games (future rows for a live scan)."""
     if mk.empty:
         return mk.assign(game_id=None, player_id=None)
-    games = frame[["game_id", "team", "opp", "is_home"]].drop_duplicates()
-    home = games[games["is_home"] >= 0.5].rename(columns={"team": "home", "opp": "away"})[["game_id", "home", "away"]]
-    away = games[games["is_home"] <= 0.5].rename(columns={"team": "away", "opp": "home"})[["game_id", "home", "away"]]
-    gmap = pd.concat([home, away]).drop_duplicates(["home", "away"])
-    out = mk.merge(gmap, on=["home", "away"], how="left")
+    games = frame[["game_id", "team", "opp", "is_home", "kickoff"]].drop_duplicates(["game_id", "team"])
+    home = games[games["is_home"] >= 0.5].rename(columns={"team": "home", "opp": "away"})
+    away = games[games["is_home"] <= 0.5].rename(columns={"team": "away", "opp": "home"})
+    gmap = pd.concat([home, away])[["game_id", "home", "away", "kickoff"]].drop_duplicates("game_id")
+    # the same two teams can meet more than once (other seasons, playoffs): pick the game on the ticker's date
+    out = mk.reset_index(drop=True).reset_index(names="_i").merge(gmap, on=["home", "away"], how="left")
+    when = pd.to_datetime(out["gdate"], format="%y%b%d", errors="coerce")
+    out["_gap"] = (pd.to_datetime(out["kickoff"]).dt.normalize() - when).abs().dt.days
+    out = out.sort_values(["_i", "_gap"]).drop_duplicates("_i")
+    out.loc[out["_gap"] > 1, "game_id"] = None
+    out = out.drop(columns=["_i", "_gap", "kickoff"]).reset_index(drop=True)
     roster = frame[["game_id", "team", "player_id", "name"]].dropna(subset=["name"]).copy()
     roster["nn"] = roster["name"].map(norm_name)
     lookup = {(g, t): d for (g, t), d in roster.groupby(["game_id", "team"])}

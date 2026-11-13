@@ -61,6 +61,10 @@ DEFAULTS = {
     "model": {
         "market_weight": 0.7,         # shrink model prob toward the market mid (0 = trust model fully)
         "book_weight": 0.5,           # if sportsbook props are available, weight on de-vigged book prob
+        "learned_blend": False,       # use models/blend.json instead of market_weight. Off: over 2025-26 the
+                                      # fixed weight beat the learned one walk-forward (see RESEARCH.md)
+        "blend_ridge": 3000.0,
+        "use_weather": False,         # wx_* features in the model (needs forecasts at scan time; see weather.py)        # shrinkage of the learned blend toward market_weight
     },
     "risk": {
         "bankroll": 500.0,            # paper bankroll; live mode reads the real balance
@@ -95,6 +99,13 @@ DEFAULTS = {
         "rungs_per_ladder": 4, "max_candidates": 70, "beam": 250, "draws": 40000,
         "max_stake_per_combo": 10.0,
         "exclude_stats": [],
+        # Kalshi Help Center: receptions, receiving-yards and rushing-yards ladders can't be added to combos.
+        # Empty this list if that changes; the exchange's own collection list is also checked (require_eligible).
+        "not_combinable_stats": ["rec", "rec_yds", "rush_yds"],
+        "require_eligible": True,
+        "max_legs_per_game": 4,       # concentration limits
+        "max_legs_per_player": 2,
+        "max_pair_rho": 0.85,         # two legs this correlated are nearly the same bet
     },
 }
 

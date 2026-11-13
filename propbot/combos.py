@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from .config import MODELS, REPORTS, STATS
+from .config import DATA, MODELS, REPORTS, STATS
 from .edge import fee_per_contract, logit
 
 POSG = {"QB": "QB", "RB": "RB", "FB": "RB", "WR": "WR", "TE": "TE"}
@@ -160,10 +160,51 @@ def simulate(vars_: pd.DataFrame, cop: dict, n: int = 40000, seed: int = 7) -> n
 
 
 # ----------------------------------------------------------------------------- legs
-def candidate_legs(px: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+ELIG_CACHE = DATA / "combo_eligible.json"
+
+
+def eligible_events(log=print) -> dict | None:
+    """Event tickers Kalshi lets you put in an NFL combo, from the exchange's own multivariate
+    collections ({event_ticker: yes_only}). Cached for 6 hours. None if the API is unreachable."""
+    import time
+    if ELIG_CACHE.exists() and time.time() - ELIG_CACHE.stat().st_mtime < 6 * 3600:
+        return json.loads(ELIG_CACHE.read_text())
+    try:
+        from .kalshi import Kalshi
+        k = Kalshi("prod")
+        out, cursor = {}, None
+        for _ in range(20):
+            r = k._req("GET", "/multivariate_event_collections",
+                       params={"status": "open", "limit": 200, **({"cursor": cursor} if cursor else {})})
+            for col in r.get("multivariate_contracts", []):
+                for e in col.get("associated_events", []):
+                    if e["ticker"].startswith("KXNFL"):
+                        out[e["ticker"]] = bool(e.get("is_yes_only")) or out.get(e["ticker"], False)
+            cursor = r.get("cursor")
+            if not cursor:
+                break
+        ELIG_CACHE.write_text(json.dumps(out))
+        return out
+    except Exception as e:
+        log(f"  [combos] could not read combo collections ({type(e).__name__}); eligibility from config only")
+        return None
+
+
+def candidate_legs(px: pd.DataFrame, cfg: dict, log=print) -> pd.DataFrame:
     """Turn a priced scan (bot.scan / last_scan.parquet) into YES/NO legs with edge vs the market."""
     c = cfg.get("combos", {})
     d = px.dropna(subset=["p_final", "p_market"]).copy()
+    # Kalshi-specific: only markets the combo builder accepts. The config list mirrors the Help Center
+    # ("receptions, receiving yards and rushing yards ladders cannot be added to combos"); the exchange's
+    # collection list is applied on top when reachable.
+    d = d[~d["stat"].isin(c.get("not_combinable_stats", []))]
+    d = d[~d["series"].str.endswith("PROT")] if "series" in d.columns else d
+    yes_only = set()
+    if c.get("require_eligible", True):
+        el = eligible_events(log)
+        if el is not None and "event" in d.columns:
+            d = d[d["event"].isin(el)]
+            yes_only = {e for e, y in el.items() if y}
     d = d[d["minutes_to_kickoff"] > cfg["risk"]["min_minutes_to_kickoff"]]
     d = d[d["games_career"] >= cfg["risk"]["min_games_history"]]
     if cfg["risk"].get("skip_questionable", True):
@@ -174,6 +215,8 @@ def candidate_legs(px: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     d = d[~d["stat"].isin(c.get("exclude_stats", []))]
     yes = d.assign(side="yes", p_leg=d["p_final"], p_mkt=d["p_market"])
     no = d.assign(side="no", p_leg=1 - d["p_final"], p_mkt=1 - d["p_market"])
+    if "event" in no.columns and yes_only:
+        no = no[~no["event"].isin(yes_only)]
     legs = pd.concat([yes, no], ignore_index=True)
     if not c.get("allow_no", True):
         legs = legs[legs["side"] == "yes"]
@@ -214,6 +257,7 @@ class ComboPricer:
         self.vars = v
         vid = {k: i for i, k in enumerate(zip(v["game_id"], v["player_id"], v["stat"]))}
         self.legs["var"] = [vid[k] for k in zip(self.legs["game_id"], self.legs["player_id"], self.legs["stat"])]
+        self.cop = cop
         U = simulate(v, cop, n_draws, seed) if len(v) else np.empty((n_draws, 0))
         u = U[:, self.legs["var"].to_numpy()]
         yes = (self.legs["side"] == "yes").to_numpy()
@@ -221,6 +265,20 @@ class ComboPricer:
         # YES on "N+" hits when U >= 1 - P(N+); NO hits when U < 1 - P(N+) (P(N+) = 1 - p_leg for NO)
         self.hit = np.where(yes, u >= 1 - pm, u < pm).T.copy()          # model marginals
         self.hit_mkt = np.where(yes, u >= 1 - pk, u < pk).T.copy()      # market marginals
+
+    def rho(self, i: int, j: int) -> float:
+        """Latent correlation between legs i and j (sign-flipped for NO legs)."""
+        a, b = self.legs.iloc[i], self.legs.iloc[j]
+        if a["var"] == b["var"]:
+            r = 1.0
+        elif a["game_id"] != b["game_id"]:
+            r = 0.0
+        else:
+            rel = "self" if a["player_id"] == b["player_id"] else ("team" if a["team"] == b["team"] else "opp")
+            ra, rb = f"{POSG.get(a['position'])}:{a['stat']}", f"{POSG.get(b['position'])}:{b['stat']}"
+            fine, coarse = pair_keys(rel, ra, rb)
+            r = self.cop["rho"].get(fine, self.cop["rho"].get(coarse, 0.7 if rel == "self" else 0.0))
+        return r * (1 if a["side"] == b["side"] else -1)
 
     def price(self, idx: tuple[int, ...]) -> tuple[float, float]:
         h = self.hit[idx[0]].copy(); hm = self.hit_mkt[idx[0]].copy()
@@ -255,6 +313,14 @@ def search(pr: ComboPricer, cfg: dict, log=print) -> pd.DataFrame:
     L = pr.legs
     ladder = list(zip(L["game_id"], L["player_id"], L["stat"]))
     games = L["game_id"].to_numpy()
+    players = L["player_id"].to_numpy()
+    max_game, max_player = c.get("max_legs_per_game", 4), c.get("max_legs_per_player", 2)
+    max_rho = c.get("max_pair_rho", 0.85)
+
+    def ok(idx, j):
+        if sum(games[i] == games[j] for i in idx) >= max_game or sum(players[i] == players[j] for i in idx) >= max_player:
+            return False
+        return all(abs(pr.rho(i, j)) <= max_rho for i in idx)
     n = len(L)
     seen, results = set(), []
     beam = [((i,), *pr.price((i,))) for i in range(n)]
@@ -263,7 +329,7 @@ def search(pr: ComboPricer, cfg: dict, log=print) -> pd.DataFrame:
         for idx, _, _ in beam:
             used = {ladder[i] for i in idx}
             for j in range(n):
-                if j in idx or ladder[j] in used or (same_game and games[j] != games[idx[0]]):
+                if j in idx or ladder[j] in used or (same_game and games[j] != games[idx[0]]) or not ok(idx, j):
                     continue
                 key = tuple(sorted(idx + (j,)))
                 if key in seen:
@@ -292,6 +358,87 @@ def search(pr: ComboPricer, cfg: dict, log=print) -> pd.DataFrame:
     out = pd.DataFrame(results).drop_duplicates("legs")
     out = out[(out["ev"] > 0) & (out["roi"] >= c.get("min_roi", 0.10))]
     return out.sort_values("growth", ascending=False).reset_index(drop=True)
+
+
+def _ece_by_stat() -> dict:
+    p = REPORTS / "backtest.json"
+    if not p.exists():
+        return {}
+    return {k: v.get("ece_cal", 0.01) for k, v in json.loads(p.read_text()).items()}
+
+
+def risk_report(pr: ComboPricer, combo: tuple, cfg: dict, n_sims: int = 4000, seed: int = 3) -> dict:
+    """Parameters 176-200 and 226-250 for one combo: failure counts, pairwise correlations and conditional
+    hit rates, structure / concentration, calibration band, pessimistic EV, Kelly stake and drawdown."""
+    from .edge import blend
+    L = pr.legs.iloc[list(combo)]
+    H = pr.hit[list(combo)]
+    hits = H.sum(axis=0)
+    k = len(combo)
+    p_all = float((hits == k).mean())
+    out = dict(n_legs=k, p_all_hit=p_all, p_all_fail=float((hits == 0).mean()), p_ge1_fail=1 - p_all,
+               p_ge2_fail=float((hits <= k - 2).mean()), p_indep_model=float(np.prod(L["p_leg"])))
+    # pairwise: latent rho and P(B | A) from the simulation
+    pairs = []
+    for a, b in itertools.combinations(range(k), 2):
+        pa = H[a].mean()
+        pairs.append(dict(a=L.iloc[a]["label"], b=L.iloc[b]["label"], rho=pr.rho(combo[a], combo[b]),
+                          p_b_given_a=float((H[a] & H[b]).mean() / pa) if pa > 0 else np.nan,
+                          p_b=float(H[b].mean())))
+    out["pairs"] = pairs
+    out["max_abs_rho"] = max((abs(p["rho"]) for p in pairs), default=0.0)
+    out["mean_rho"] = float(np.mean([p["rho"] for p in pairs])) if pairs else 0.0
+    # structure
+    teams = L.groupby("game_id")["team"].agg(lambda t: t.value_counts().max())
+    out.update(n_games=int(L["game_id"].nunique()), max_legs_one_game=int(L["game_id"].value_counts().max()),
+               max_same_team=int(teams.max()), max_legs_one_player=int(L["player_id"].value_counts().max()),
+               n_opposing_pairs=sum(1 for a, b in itertools.combinations(range(k), 2)
+                                    if L.iloc[a]["game_id"] == L.iloc[b]["game_id"] and L.iloc[a]["team"] != L.iloc[b]["team"]),
+               shared_game_legs=int(k - L["game_id"].nunique()))
+    # calibration band: every leg moved by 2x its stat's historical calibration error
+    ece = _ece_by_stat()
+    d = np.array([2 * ece.get(s_, 0.01) for s_ in L["stat"]])
+    u = np.random.default_rng(seed)
+    idx = list(combo)
+    p_leg = L["p_leg"].to_numpy()
+    yes = (L["side"] == "yes").to_numpy()
+    U = None
+    try:
+        U_vars = simulate(pr.vars, pr.cop, n_sims, seed)
+        U = U_vars[:, L["var"].to_numpy()]
+    except Exception:
+        pass
+    def joint(pl):
+        if U is None:
+            return float(np.prod(pl))
+        h = np.where(yes, U >= 1 - pl, U < pl)
+        return float(h.all(axis=1).mean())
+    out["p_lo"] = joint(np.clip(p_leg - d, 0.01, 0.99))
+    out["p_hi"] = joint(np.clip(p_leg + d, 0.01, 0.99))
+    out["mc_se"] = float(np.sqrt(p_all * (1 - p_all) / H.shape[1]))
+    # pessimistic: legs shrunk to 90% market (instead of the configured weight)
+    p_model_raw = np.where(yes, L["p_model"], 1 - L["p_model"])
+    pess = blend(p_model_raw, L["p_mkt"].to_numpy(), 0.9)
+    out["p_pessimistic"] = joint(np.clip(pess, 0.01, 0.99))
+    return out
+
+
+def portfolio_drawdown(res: pd.DataFrame, bankroll: float, weeks: int = 17, sims: int = 2000, seed: int = 5) -> dict:
+    """Bet the shortlist every week for a season (independent across combos/weeks): bankroll paths."""
+    if res.empty:
+        return {}
+    rng = np.random.default_rng(seed)
+    q, c, st = res["p_model"].to_numpy(), res["est_price"].to_numpy(), res["stake"].to_numpy()
+    fee = np.array([fee_per_contract(x) for x in c])
+    n = np.floor(st / (c + fee))
+    pnl_win, pnl_loss = n * (1 - c - fee), -n * (c + fee)
+    wins = rng.random((sims, weeks, len(q))) < q
+    week = np.where(wins, pnl_win, pnl_loss).sum(axis=2)
+    eq = bankroll + np.cumsum(week, axis=1)
+    peak = np.maximum.accumulate(np.concatenate([np.full((sims, 1), bankroll), eq], axis=1), axis=1)[:, 1:]
+    dd = ((peak - eq) / peak).max(axis=1)
+    return dict(exp_season_pnl=float(week.sum(axis=1).mean()), p_losing_season=float((week.sum(axis=1) < 0).mean()),
+                median_max_drawdown=float(np.median(dd)), p95_max_drawdown=float(np.percentile(dd, 95)))
 
 
 def pick(res: pd.DataFrame, n: int = 10, max_reuse: int = 2) -> pd.DataFrame:
@@ -328,7 +475,7 @@ def suggest(px: pd.DataFrame, cfg: dict, top: int = 10, log=print) -> dict:
     cop = load_copula()
     if not cop["rho"]:
         log("  [combos] no copula fitted yet (run `train` or `fit-copula`); legs treated as independent")
-    legs = candidate_legs(px, cfg)
+    legs = candidate_legs(px, cfg, log)
     log(f"  [combos] {len(legs)} candidate legs from {legs['game_id'].nunique() if len(legs) else 0} games")
     if len(legs) < 2:
         return dict(legs=legs, combos=pd.DataFrame(), best_by_size=pd.DataFrame(), pricer=None)
@@ -342,7 +489,10 @@ def suggest(px: pd.DataFrame, cfg: dict, top: int = 10, log=print) -> dict:
     for d in (res, best):
         d["stake"] = np.minimum(bank * d["kelly"], cap).round(2)
         d["desc"] = [" + ".join(pr.legs.loc[list(t), "label"]) for t in d["legs"]]
-    return dict(legs=pr.legs, combos=pick(res, top), best_by_size=best, pricer=pr)
+    short = pick(res, top)
+    short["risk"] = [risk_report(pr, t, cfg) for t in short["legs"]]
+    return dict(legs=pr.legs, combos=short, best_by_size=best, pricer=pr,
+                portfolio=portfolio_drawdown(short, bank))
 
 
 # ----------------------------------------------------------------------------- honest check

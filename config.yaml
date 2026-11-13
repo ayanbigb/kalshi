@@ -4,6 +4,7 @@ kalshi:
 model:
   market_weight: 0.7   # 0 = trust the model completely, 1 = never disagree with the market
   book_weight: 0.5     # how hard sportsbook lines pull the model (needs ODDS_API_KEY)
+  learned_blend: false # true = use the per-stat blend that market-backtest fits (it has not beaten the fixed weight yet)
 risk:
   bankroll: 500        # paper bankroll in dollars
   kelly_fraction: 0.20

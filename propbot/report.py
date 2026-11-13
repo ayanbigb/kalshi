@@ -36,6 +36,14 @@ def matchup(frame: pd.DataFrame, raw: dict, name: str, model=None, out=print):
     out(f"weather: {wx}   travel {r['travel_km']:.0f} km, tz shift {r['tz_shift']:+.1f}h, altitude {r['altitude']:.0f} m"
         f"{'  PRIMETIME' if r['primetime'] else ''}{'  short week' if r['short_week'] else ''}"
         f"{'  body-clock spot' if r['body_clock'] else ''}")
+    g = lambda c, f="{:.2f}": (f.format(r[c]) if c in r.index and r[c] == r[c] else "n/a")
+    out(f"game script: win prob {g('ml_win_prob')}  P(blowout) {g('p_blowout')}  P(one-score) {g('p_close')}  "
+        f"P(trail by 11+) {g('p_trail_big')}  expected plays {g('exp_plays', '{:.0f}')}")
+    out(f"form: last 3/5/10 games rr yds {g('rr_yds_m3', '{:.0f}')}/{g('rr_yds_m5', '{:.0f}')}/{g('rr_yds_m10', '{:.0f}')}"
+        f"  pass yds {g('passing_yards_m3', '{:.0f}')}/{g('passing_yards_m5', '{:.0f}')}/{g('passing_yards_m10', '{:.0f}')}"
+        f"  snap% L3 {g('offense_pct_m3')}  target-share trend {g('target_share_trend5', '{:+.3f}')}/g  1st-half share {g('h1_share_e6')}")
+    out(f"availability: games missed {g('games_missed_szn', '{:.0f}')}, injury-report weeks (last 17) {g('inj_hist17', '{:.0f}')}, "
+        f"games since return {g('games_since_absence', '{:.0f}')}, road streak {g('road_streak', '{:.0f}')}")
     out(f"injury: {'Questionable' if r['inj_questionable'] else 'not listed / cleared'}"
         f"   vacated team targets {r['vac_tgt']:.2f}, carries {r['vac_carry']:.2f}   own OL missing {r['ol_miss']:.2f} starters")
 
@@ -64,6 +72,17 @@ def matchup(frame: pd.DataFrame, raw: dict, name: str, model=None, out=print):
     out(f"vs former team: {'YES' if r['vs_former_team'] else 'no'}   "
         f"vs this head coach: {r['vscoach_n']:.0f} games, rec yds {r['vscoach_res_rec_yds']:+.1f}, "
         f"rush yds {r['vscoach_res_rush_yds']:+.1f}")
+
+    sp = [("home" if r["is_home"] >= 0.5 else "away", "sp_home"), ("division" if r["div_game"] else "non-division", "sp_div"),
+          ("primetime" if r.get("primetime", 0) else "day", "sp_prime"), ("this def tier", "sp_deftier"),
+          ("after loss" if r.get("rec_streak", 0) < 0 else "after win", "sp_afterloss"), ("this script", "sp_script"),
+          ("with this QB", "sp_qb"), ("teammate out" if r.get("vac_tgt", 0) + r.get("vac_carry", 0) > 0.15 else "full lineup", "sp_mate_out")]
+    out("splits (his avg yards vs his own rolling average in games like this one, shrunk; n games): " + ", ".join(
+        f"{lab} {r[k + '_res']:+.1f} (n={r[k + '_n']:.0f})" for lab, k in sp if k + "_res" in r.index)
+        + f"; last 3 vs {opp} {g('vsopp_last3_res', '{:+.1f}')}")
+    out(f"{opp} also: 3rd-down conv allowed {g('opp_d3conv_e5')}, red-zone TD rate allowed {g('opp_drz_td_e5')}, "
+        f"yds allowed to WR1 {g('opp_alw_wr1_e5', '{:.0f}')} / WR2 {g('opp_alw_wr2_e5', '{:.0f}')} / TE1 {g('opp_alw_te1_e5', '{:.0f}')}"
+        f" / RB1 {g('opp_alw_rb1_e5', '{:.0f}')}")
 
     # ---- opposing defense
     tgh = frame[~frame["is_future"]]

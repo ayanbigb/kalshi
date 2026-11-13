@@ -7,6 +7,7 @@ import json
 import numpy as np
 import pandas as pd
 
+from . import blend as blender
 from . import odds, risk
 from .config import REPORTS, DATA, STATS, env, load_config
 from .data import current_season, load_all
@@ -63,15 +64,28 @@ def price_markets(mk: pd.DataFrame, frame: pd.DataFrame, model: PropModel, book:
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
 
-def add_edges(px: pd.DataFrame, cfg: dict, now: pd.Timestamp | None = None) -> pd.DataFrame:
+def final_prob(p_model, p_market, stat, cfg: dict, beta=None) -> np.ndarray:
+    """Model + market -> the probability the bot trades on: the fixed `market_weight` blend, or with
+    `learned_blend: true` the per-stat blend that `market-backtest` writes to models/blend.json."""
+    if cfg["model"].get("learned_blend", False):
+        beta = blender.load() if beta is None else beta
+        if beta is not None:
+            return blender.apply(beta, p_model, p_market, stat)
+    return blend(p_model, p_market, cfg["model"]["market_weight"])
+
+
+def add_edges(px: pd.DataFrame, cfg: dict, now: pd.Timestamp | None = None, p_final=None) -> pd.DataFrame:
+    """`p_final` overrides the blend (the backtest passes walk-forward values so nothing is priced in-sample)."""
     if px.empty:
         return px
     now = now or _now_et()
-    r, w = cfg["risk"], cfg["model"]["market_weight"]
+    r = cfg["risk"]
     two_sided = px["yes_bid"].between(0.005, 0.995) & px["yes_ask"].between(0.005, 0.995)
     px["p_market"] = np.where(two_sided, (px["yes_bid"] + px["yes_ask"]) / 2, np.nan)
     px["spread"] = np.where(two_sided, px["yes_ask"] - px["yes_bid"], np.nan)
-    px["p_final"] = np.where(two_sided, blend(px["p_model"], px["p_market"].fillna(0.5), w), np.nan)
+    if p_final is None:
+        p_final = final_prob(px["p_model"], px["p_market"].fillna(0.5), px["stat"], cfg)
+    px["p_final"] = np.where(two_sided, p_final, np.nan)
     px["minutes_to_kickoff"] = (pd.to_datetime(px["kickoff"]) - now).dt.total_seconds() / 60
     recs = []
     for c in px.to_dict("records"):
@@ -110,7 +124,9 @@ def scan(cfg: dict | None = None, client: Kalshi | None = None, refresh: bool = 
     if len(book):
         log(f"  sportsbook anchor: {len(book)} player lines")
     px = price_markets(mk, fut, PropModel(), book, cfg["model"]["book_weight"])
-    return add_edges(px, cfg)
+    from . import quotes
+    quotes.log_snapshot(mk)
+    return quotes.add_movement(add_edges(px, cfg))
 
 
 def _state(ledger: Ledger, mode: str, cfg: dict, client: Kalshi | None) -> dict:
@@ -182,80 +198,177 @@ def settle(live: bool = False, log=print) -> int:
 
 
 # ----------------------------------------------------------------------------- model vs. the actual market
-def settled_quotes(cfg: dict, frame: pd.DataFrame, min_volume: float = 25, log=print) -> pd.DataFrame:
-    """Settled prop markets for this season with their last pre-kickoff bid/ask (cached on disk)."""
+def settled_quotes(cfg: dict, frame: pd.DataFrame, min_volume: float = 25, log=print, refresh: bool = False) -> pd.DataFrame:
+    """Every settled prop market Kalshi has published (recent + archive endpoints) with its last
+    pre-kickoff bid/ask. `frame` must hold the played games of all seasons to cover. Cached on disk;
+    only tickers that are not in the cache yet are downloaded."""
     cache = DATA / "kalshi_settled.parquet"
-    if cache.exists():
-        return pd.read_parquet(cache)
+    old = pd.read_parquet(cache) if cache.exists() else pd.DataFrame()
+    if len(old) and not refresh:
+        return old
     client = Kalshi("prod")
-    mk = pd.concat([parse(client.markets(s, "settled")) for s in cfg["kalshi"]["series"]], ignore_index=True)
+    raw = []
+    for s in cfg["kalshi"]["series"]:
+        raw += client.markets(s, "settled") + client.historical_markets(s)
+    mk = parse(raw).drop_duplicates("ticker")
+    log(f"  {len(mk)} settled prop markets listed")
+    if len(old):
+        mk = mk[~mk["ticker"].isin(old["ticker"])]
     mk = attach_players(mk, frame)
-    kick = frame.drop_duplicates("game_id").set_index("game_id")["kickoff"].dt.tz_localize(ET).dt.tz_convert("UTC")
+    kick = frame.drop_duplicates("game_id").set_index("game_id")["kickoff"].dt.tz_localize(ET, ambiguous="NaT", nonexistent="NaT") \
+        .dt.tz_convert("UTC")
     epoch = pd.Timestamp("1970-01-01", tz="UTC")
     secs = lambda t: (t - epoch) // pd.Timedelta("1s")
     mk = mk[mk["player_id"].notna() & mk["game_id"].notna()].copy()
     mk["kick_ts"] = secs(mk["game_id"].map(kick))
-    mk = mk[mk["result"].isin(["yes", "no"]) & (mk["volume"] >= min_volume) &
-            (secs(pd.to_datetime(mk["open_time"], utc=True)) < mk["kick_ts"])].copy()
-    log(f"  {len(mk)} settled markets with volume >= {min_volume} that were open before kickoff; pulling quotes")
+    mk = mk[mk["result"].isin(["yes", "no"]) & (mk["volume"] >= min_volume) & mk["kick_ts"].notna() &
+            (secs(pd.to_datetime(mk["open_time"], utc=True, format="ISO8601")) < mk["kick_ts"])].copy()
+    log(f"  {len(mk)} new settled markets with volume >= {min_volume} that were open before kickoff; pulling quotes")
+    def last_quote(arr, ts):
+        px = lambda c, side: (c.get(side) or {}).get("close_dollars") or (c.get(side) or {}).get("close")
+        arr = [c for c in arr if c["end_period_ts"] <= ts and px(c, "yes_bid") and px(c, "yes_ask")]
+        if not arr:
+            return None
+        c = arr[-1]
+        return (float(px(c, "yes_bid")), float(px(c, "yes_ask")), float(c.get("volume_fp") or c.get("volume") or 0),
+                int(c["end_period_ts"]))
+
     q = {}
     for ts, g in mk.groupby("kick_ts"):
-        cs = client.candles(list(g["ticker"]), int(ts) - 6 * 3600, int(ts), 60)
-        for tk, arr in cs.items():
-            arr = [c for c in arr if c["end_period_ts"] <= ts and c.get("yes_bid", {}).get("close_dollars")
-                   and c.get("yes_ask", {}).get("close_dollars")]
-            if arr:
-                c = arr[-1]
-                q[tk] = (float(c["yes_bid"]["close_dollars"]), float(c["yes_ask"]["close_dollars"]))
-    mk["yes_bid"] = mk["ticker"].map(lambda t: q.get(t, (np.nan, np.nan))[0])
-    mk["yes_ask"] = mk["ticker"].map(lambda t: q.get(t, (np.nan, np.nan))[1])
-    mk = mk.dropna(subset=["yes_bid", "yes_ask"])
-    mk["no_ask"] = 1 - mk["yes_bid"]; mk["no_bid"] = 1 - mk["yes_ask"]
+        for tk, arr in client.candles(list(g["ticker"]), int(ts) - 6 * 3600, int(ts), 60).items():
+            if (v := last_quote(arr, ts)) is not None:
+                q[tk] = v
+    def finish(part: pd.DataFrame) -> pd.DataFrame:
+        part = part.copy()
+        nan4 = (np.nan, np.nan, np.nan, np.nan)
+        for i, col in enumerate(["yes_bid", "yes_ask", "last_candle_volume", "quote_ts"]):
+            part[col] = part["ticker"].map(lambda t: q.get(t, nan4)[i])
+        part = part.dropna(subset=["yes_bid", "yes_ask"])
+        part["no_ask"] = 1 - part["yes_bid"]; part["no_bid"] = 1 - part["yes_ask"]
+        return pd.concat([old, part], ignore_index=True) if len(old) else part
+
+    # archived markets are not served by the batch endpoint: fetch them one ticker at a time, oldest game
+    # first, a few in parallel under one shared rate limit, saving as we go so an interrupted pull resumes
+    skip_path = DATA / "kalshi_noquote.json"
+    skip = set(json.loads(skip_path.read_text())) if skip_path.exists() else set()
+    rest = mk[~mk["ticker"].isin(q) & ~mk["ticker"].isin(skip)].sort_values("kick_ts")
+    if len(rest):
+        import threading
+        import time as _time
+        from concurrent.futures import ThreadPoolExecutor
+        log(f"  {len(rest)} of them are archived; pulling those one ticker at a time")
+        local, gate, nxt = threading.local(), threading.Lock(), [0.0]
+
+        def one(a):
+            tk, ts = a
+            if not hasattr(local, "c"):
+                local.c = Kalshi("prod")
+            with gate:  # ~8 requests a second in total
+                wait = nxt[0] - _time.time()
+                nxt[0] = max(nxt[0], _time.time()) + 0.125
+            if wait > 0:
+                _time.sleep(wait)
+            try:
+                return tk, last_quote(local.c.historical_candles(tk, int(ts) - 6 * 3600, int(ts), 60), ts)
+            except KalshiError:
+                return tk, "error"
+
+        pairs = list(zip(rest["ticker"], rest["kick_ts"]))
+        with ThreadPoolExecutor(4) as ex:
+            for i in range(0, len(pairs), 1500):
+                for tk, v in ex.map(one, pairs[i:i + 1500]):
+                    if v is None:
+                        skip.add(tk)
+                    elif v != "error":
+                        q[tk] = v
+                finish(mk[mk["ticker"].isin(q)]).to_parquet(cache)
+                skip_path.write_text(json.dumps(sorted(skip)))
+                log(f"    {min(i + 1500, len(pairs))}/{len(pairs)} archived tickers done")
+    mk = finish(mk)
     mk.to_parquet(cache)
     return mk
 
 
-def market_backtest(min_volume: float = 25, log=print) -> dict:
-    """Score the walk-forward model against real pre-kickoff Kalshi quotes on settled markets from
-    the current season, and replay the trading rules on them. The model used for these predictions
-    was trained only on earlier seasons."""
+def _replay(d: pd.DataFrame, cfg: dict, p_final, stake: float = 10.0) -> tuple[dict, pd.DataFrame]:
+    """Apply gates 1-4 to settled markets, take the best rung per player/stat/game, flat stake."""
+    e = add_edges(d.copy(), cfg, now=pd.Timestamp("2000-01-01"), p_final=p_final)
+    bets = e[e["fails"] == ""].sort_values("ev", ascending=False).drop_duplicates(["game_id", "player_id", "stat"]).copy()
+    if bets.empty:
+        return dict(bets=0), bets
+    bets["n"] = np.floor(stake / bets["cost"])
+    win = np.where(bets["side"] == "yes", bets["y"], 1 - bets["y"])
+    bets["pnl"] = bets["n"] * (win - bets["price"] - fee_per_contract(bets["price"]))
+    bets["staked"] = bets["n"] * bets["cost"]
+    bets["win"] = win
+    roi = lambda b: float(b["pnl"].sum() / b["staked"].sum()) if b["staked"].sum() > 0 else float("nan")
+    by_game = bets.groupby("game_id")[["pnl", "staked"]].sum()
+    rng = np.random.default_rng(0)
+    idx = rng.integers(0, len(by_game), (4000, len(by_game)))
+    boots = by_game["pnl"].to_numpy()[idx].sum(1) / by_game["staked"].to_numpy()[idx].sum(1)
+    out = dict(bets=int(len(bets)), games=int(len(by_game)), win_rate=float(win.mean()), avg_price=float(bets["price"].mean()),
+               staked=float(bets["staked"].sum()), pnl=float(bets["pnl"].sum()), roi=roi(bets),
+               roi_ci90=[float(np.percentile(boots, 5)), float(np.percentile(boots, 95))],
+               p_roi_positive=float((boots > 0).mean()),
+               by_stat={k: dict(bets=int(len(g)), roi=roi(g), pnl=float(g["pnl"].sum())) for k, g in bets.groupby("stat")},
+               by_season={int(k): dict(bets=int(len(g)), roi=roi(g), pnl=float(g["pnl"].sum())) for k, g in bets.groupby("season")},
+               by_side={k: dict(bets=int(len(g)), roi=roi(g)) for k, g in bets.groupby("side")})
+    return out, bets
+
+
+def market_backtest(min_volume: float = 25, log=print, refresh: bool = False, oos: pd.DataFrame | None = None,
+                    save: bool = True) -> dict:
+    """Score the walk-forward model against real pre-kickoff Kalshi quotes on every settled market Kalshi has
+    published (2025 week 6 onward), learn the model/market blend walk-forward, and replay the trading rules.
+    Nothing here is in-sample: the model that priced a game was trained on earlier seasons only, and the blend
+    that priced a week was fitted on earlier weeks only."""
     cfg = load_config()
-    cur = current_season()
-    oos = pd.read_parquet(REPORTS / "oos_predictions.parquet")
-    oos = oos[oos["season"] == cur].rename(columns={"k": "strike", "p_cal": "p_model"})
+    if oos is None:
+        oos = pd.read_parquet(REPORTS / "oos_predictions.parquet")
+    oos = oos.rename(columns={"k": "strike", "p_cal": "p_model"})
     frame = build(load_all(), include_future=False)
-    frame = frame[frame["season"] == cur]
-    mk = settled_quotes(cfg, frame, min_volume, log)
-    d = mk.merge(oos[["game_id", "player_id", "stat", "strike", "p_model", "mu", "week"]],
+    frame = frame[frame["season"] >= 2025]
+    mk = settled_quotes(cfg, frame, min_volume, log, refresh=refresh)
+    d = mk.merge(oos[["game_id", "player_id", "stat", "strike", "p_model", "mu", "season", "week"]],
                  on=["game_id", "player_id", "stat", "strike"], how="inner")
     d = d.merge(frame[["game_id", "player_id", "name", "games_career", "inj_questionable", "kickoff"]],
                 on=["game_id", "player_id"], how="left")
     d["y"] = (d["result"] == "yes").astype(int)
     d["yes_ask_size"] = d["no_ask_size"] = 1e9  # depth is unknown historically
-    d = add_edges(d, cfg, now=pd.Timestamp("2000-01-01"))
-    d = d.dropna(subset=["p_market"])
-    ll = lambda p: float(-np.mean(d["y"] * np.log(np.clip(p, 1e-4, 1)) + (1 - d["y"]) * np.log(np.clip(1 - p, 1e-4, 1))))
-    res = dict(markets=int(len(d)), games=int(d["game_id"].nunique()), weeks=sorted(int(w) for w in d["week"].unique()),
-               logloss_model=ll(d["p_model"]), logloss_market=ll(d["p_market"]), logloss_blend=ll(d["p_final"]),
-               brier_model=float(((d["p_model"] - d["y"]) ** 2).mean()), brier_market=float(((d["p_market"] - d["y"]) ** 2).mean()))
-    # replay the rules: gates 1-4, best rung per player/stat/game, flat $10 stake
-    bets = d[d["fails"] == ""].sort_values("ev", ascending=False).drop_duplicates(["game_id", "player_id", "stat"]).copy()
-    if len(bets):
-        bets["n"] = np.floor(10 / bets["cost"])
-        win = np.where(bets["side"] == "yes", bets["y"], 1 - bets["y"])
-        bets["pnl"] = bets["n"] * (win - bets["price"] - fee_per_contract(bets["price"]))
-        bets["staked"] = bets["n"] * bets["cost"]
-        bets["win"] = win
-        by_game = bets.groupby("game_id")[["pnl", "staked"]].sum()
-        rng = np.random.default_rng(0)
-        boots = [(lambda s: s["pnl"].sum() / s["staked"].sum())(by_game.sample(len(by_game), replace=True, random_state=rng))
-                 for _ in range(2000)]
-        res["strategy"] = dict(bets=int(len(bets)), win_rate=float(win.mean()), avg_price=float(bets["price"].mean()),
-                               staked=float(bets["staked"].sum()), pnl=float(bets["pnl"].sum()),
-                               roi=float(bets["pnl"].sum() / bets["staked"].sum()),
-                               roi_ci90=[float(np.percentile(boots, 5)), float(np.percentile(boots, 95))],
-                               by_stat={k: dict(bets=int(len(g)), roi=float(g["pnl"].sum() / g["staked"].sum()))
-                                        for k, g in bets.groupby("stat")})
-    d.to_parquet(REPORTS / "market_backtest.parquet")
-    (REPORTS / "market_backtest.json").write_text(json.dumps(res, indent=1))
+    two_sided = d["yes_bid"].between(0.005, 0.995) & d["yes_ask"].between(0.005, 0.995)
+    d = d[two_sided].reset_index(drop=True)
+    d["p_market"] = (d["yes_bid"] + d["yes_ask"]) / 2
+    d["spread"] = d["yes_ask"] - d["yes_bid"]
+    fixed = blend(d["p_model"], d["p_market"], cfg["model"]["market_weight"])
+    # learn the blend on tradeable quotes only: a 21c/78c market has no price to learn from
+    fit_rows = (d["spread"] <= cfg["risk"]["max_spread"]) & d["p_market"].between(0.03, 0.97)
+    wf = pd.Series(np.nan, index=d.index)
+    ridge, prior_w = cfg["model"].get("blend_ridge", 3000.0), 1 - cfg["model"]["market_weight"]
+    wf[fit_rows] = blender.walk_forward(d[fit_rows], ridge=ridge, prior_w=prior_w)
+    beta = blender.fit(d[fit_rows], ridge=ridge, prior_w=prior_w)
+    d["p_fixed"] = fixed
+    d["p_learned"] = wf
+
+    y = d["y"].to_numpy()
+    ll = lambda p, m: float(-np.mean(y[m] * np.log(np.clip(p[m], 1e-4, 1)) + (1 - y[m]) * np.log(np.clip(1 - p[m], 1e-4, 1))))
+    scored = (fit_rows & wf.notna()).to_numpy()  # rows every method can be compared on
+    res = dict(markets=int(len(d)), scored_markets=int(scored.sum()), games=int(d["game_id"].nunique()),
+               seasons={int(s): int(n) for s, n in d.groupby("season").size().items()},
+               logloss=dict(market=ll(d["p_market"].to_numpy(), scored), model=ll(d["p_model"].to_numpy(), scored),
+                            fixed_blend=ll(d["p_fixed"].to_numpy(), scored), learned_blend=ll(d["p_learned"].to_numpy(), scored)),
+               model_weight_by_stat=blender.model_weight(beta))
+    res["logloss_by_season"] = {
+        int(S): dict(market=ll(d["p_market"].to_numpy(), scored & (d["season"] == S).to_numpy()),
+                     model=ll(d["p_model"].to_numpy(), scored & (d["season"] == S).to_numpy()),
+                     fixed_blend=ll(d["p_fixed"].to_numpy(), scored & (d["season"] == S).to_numpy()),
+                     learned_blend=ll(d["p_learned"].to_numpy(), scored & (d["season"] == S).to_numpy()))
+        for S in sorted(d.loc[scored, "season"].unique())}
+    # replay the rules on the same weeks for both blends
+    dd = d[scored].reset_index(drop=True)
+    res["strategy_fixed_blend"], _ = _replay(dd, cfg, dd["p_fixed"].to_numpy())
+    res["strategy_learned_blend"], bets = _replay(dd, cfg, dd["p_learned"].to_numpy())
+    if save:
+        blender.save(beta, dict(markets=int(fit_rows.sum()), through=int(d["season"].max() * 100 + d.loc[d["season"] == d["season"].max(), "week"].max())))
+        d.to_parquet(REPORTS / "market_backtest.parquet")
+        bets.to_parquet(REPORTS / "market_backtest_bets.parquet")
+        (REPORTS / "market_backtest.json").write_text(json.dumps(res, indent=1))
     return res
