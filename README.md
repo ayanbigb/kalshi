@@ -6,6 +6,9 @@ gap. Paper mode by default; live trading is behind two explicit switches.
 
 ## How Kalshi player props work
 
+Plain-language walkthrough with live examples (ladders, 80+ vs 100+, combos and correlation): `HOW_KALSHI_WORKS.md`.
+`python -m propbot ladder "Smith-Njigba" "rec yds"` and `python -m propbot combo-price "<leg>" "<leg>" ...` price any ladder or combo.
+
 Each prop is a ladder of binary "N+" contracts per player per game, e.g.
 `KXNFLRECYDS-26NOV15BUFNYJ-BUFKSHAKIR10-40` = *Khalil Shakir 40+ receiving yards, BUF @ NYJ*.
 A YES contract pays $1 if it happens. Price ≈ implied probability. Taker fee is

@@ -222,6 +222,56 @@ def cmd_combo_settle(a):
           if len(st) else "no paper combos yet")
 
 
+def _scan_cached(a):
+    from .bot import scan
+    last = REPORTS / "last_scan.parquet"
+    if not getattr(a, "rescan", False) and last.exists() and time.time() - last.stat().st_mtime < 3600:
+        return pd.read_parquet(last)
+    px = scan(load_config()); px.to_parquet(last)
+    return px
+
+
+def cmd_ladder(a):
+    from .ladder import STAT_ALIASES, ladder_view
+    px = _scan_cached(a)
+    stat = STAT_ALIASES.get(a.stat.lower(), a.stat)
+    t = ladder_view(px, a.player, stat)
+    if t.empty:
+        print("no such ladder open on Kalshi right now"); return
+    row = px[px["name"].str.contains(a.player, case=False, na=False) & (px["stat"] == stat)].iloc[0]
+    print(f"{row['name']} {stat}: model projection {row['mu']:.1f}\n"
+          "Each rung is its own $1 contract. market_% = mid price; lands_here = market chance of finishing between this\n"
+          "rung and the next; payout_x = dollars back per $1 if YES hits (fee included); EV = expected profit per $1\n"
+          "using the model's probability. The best rung is the highest EV, not the highest probability.\n")
+    print(t.round(3).to_string(index=False))
+
+
+def cmd_combo_price(a):
+    from .ladder import price_combo
+    px = _scan_cached(a)
+    r = price_combo(px, a.legs, load_config())
+    L = r["legs"]
+    print("legs (market % = Kalshi mid; model % = what the bot believes):")
+    for l in L.to_dict("records"):
+        print(f"  {l['label']:42s} market {l['p_mkt']:.1%}  model {l['p_leg']:.1%}  ask {l['price_leg']:.2f}  [{l['ticker']} {l['side'].upper()}]")
+    print(f"\nP(all legs hit):\n  if the legs were independent, at market prices  {r['p_ind_mkt']:.2%}  (what multiplying the prices gives)"
+          f"\n  at market prices WITH correlation               {r['p_fair']:.2%}  -> fair price {r['p_fair']:.3f}, payout {1 / r['p_fair']:.2f}x"
+          f"\n  the model's legs WITH correlation               {r['p_model']:.2%}  (calibrated for {len(L)} legs: {r['p_model_cal']:.2%})"
+          f"\n  multiplying the asks                            {r['product_of_asks']:.2%}")
+    rk = r["risk"]
+    for p in sorted(rk["pairs"], key=lambda d: -abs(d["rho"])):
+        if abs(p["rho"]) >= 0.03:
+            print(f"  correlation {p['rho']:+.2f}: P({p['b']} | {p['a']}) = {p['p_b_given_a']:.0%} vs {p['p_b']:.0%} alone")
+    print(f"\nexpected Kalshi quote ~{r['est_price']:.3f} (fair x (1 + {load_config()['combos']['hold']:.0%} hold)); "
+          f"accept at most {r['max_price']:.3f}")
+    b = r["bet"]
+    verdict = "worth it" if b["ev_per_dollar"] > 0 else "NOT worth it"
+    print(f"at that quote: payout {b['payout_x']:.2f}x, EV {b['ev_per_dollar']:+.1%} per $1 -> {verdict}; "
+          f"Kelly {b['kelly']:.1%} of bankroll; P(>=1 leg misses) {rk['p_ge1_fail']:.0%}, P(>=2 miss) {rk['p_ge2_fail']:.0%}")
+    if len(L) > 1 and set(L["stat"]) & set(load_config()["combos"].get("not_combinable_stats", [])):
+        print("note: rec / rec yds / rush yds legs may not be allowed in Kalshi combos (Help Center); check the app")
+
+
 def cmd_tune_risk(a):
     from . import tuning
     r = tuning.run()
@@ -425,6 +475,11 @@ def main():
     s = sub.add_parser("combo-run", help="policy: choose, size and PAPER-record combos"); s.add_argument("--rescan", action="store_true")
     s.set_defaults(f=cmd_combo_run)
     sub.add_parser("combo-settle", help="settle paper combos leg by leg").set_defaults(f=cmd_combo_settle)
+    s = sub.add_parser("ladder", help="one player's rung ladder: prices, implied %, payout, model %, EV per rung")
+    s.add_argument("player"); s.add_argument("stat", help="rec yds, rec, rush yds, pass yds, pass td, td, ...")
+    s.add_argument("--rescan", action="store_true"); s.set_defaults(f=cmd_ladder)
+    s = sub.add_parser("combo-price", help='price your own combo: combo-price "Smith-Njigba rec yds 80+" "Mahomes pass td 2+"')
+    s.add_argument("legs", nargs="+"); s.add_argument("--rescan", action="store_true"); s.set_defaults(f=cmd_combo_price)
     sub.add_parser("tune-risk", help="walk-forward rules + bankroll risk table on real quotes").set_defaults(f=cmd_tune_risk)
     sub.add_parser("account", help="READ-ONLY view of your Kalshi account (balance, positions, fills, settlements)").set_defaults(f=cmd_account)
     sub.add_parser("params", help="coverage of the 250-parameter checklist -> PARAMETERS.md").set_defaults(f=cmd_params)
