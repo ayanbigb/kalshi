@@ -36,6 +36,8 @@ def gate_row(c: dict, r: dict) -> list[str]:
     f = []
     if c["ev"] < r["min_edge"]:
         f.append("edge")
+    if r.get("skip_role_change", True) and c.get("role_change", 0) >= 1:
+        f.append("role_change")
     if c["roi"] < r["min_roi"]:
         f.append("roi")
     if not (r["min_price"] <= c["price"] <= r["max_price"]):

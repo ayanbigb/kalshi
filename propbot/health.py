@@ -45,3 +45,33 @@ def check(px: pd.DataFrame, cfg: dict, match_rate: float | None = None) -> list[
             if med > h.get("max_median_disagreement", 0.10):
                 out.append(f"median |model - market| is {med:.3f} (history: 0.03-0.10)")
     return out
+
+
+def role_change_flags(fut: pd.DataFrame, raw: dict, season: int) -> pd.DataFrame:
+    """Per upcoming (game, player): 1 if this player's role is probably bigger than his history says, so the
+    model's projection is stale. Two signals:
+      mate_out   a same-team, same-position teammate who has been playing >= 35% of snaps is Out/Doubtful
+                 (or Questionable without practicing all week), and this player has been playing < 60%
+      depth_jump listed #1 on the depth chart but averaging < 40% of snaps
+    The model systematically under-prices these players (seen 2026 wk 10: Bartholomew with Hockenson out,
+    Kiner with Henderson out, Gould promoted), so they are skipped instead of bet against."""
+    f = fut[["game_id", "team", "player_id", "position", "offense_pct_e6", "depth_rank", "week"]].copy()
+    inj = raw["injuries"]
+    weeks = f["week"].unique()
+    wk = inj[(inj["season"] == season) & inj["week"].isin(weeks)]
+    # Questionable after missing every practice usually means out (the report lags the news: 2026 wk 10
+    # Kenneth Walker III was listed Questionable/DNP and ruled out the next day)
+    dnp_q = wk["report_status"].eq("Questionable") & wk["practice_status"].astype(str).str.startswith("Did Not")
+    out = wk[wk["report_status"].isin(["Out", "Doubtful"]) | dnp_q]
+    ids = set(out["gsis_id"].dropna())
+    share = fut.attrs.get("share_by_player")
+    f["role_change"] = 0.0
+    if ids and share is not None:
+        o = out[["team", "gsis_id", "position"]].rename(columns={"gsis_id": "pid"})
+        o["share"] = o["pid"].map(share)
+        o = o[o["share"] >= 0.35]
+        key = set(zip(o["team"], o["position"]))
+        mate = np.array([(t, p) in key for t, p in zip(f["team"], f["position"])], dtype=bool)
+        f.loc[mate & (f["offense_pct_e6"].fillna(0) < 0.60).to_numpy(), "role_change"] = 1.0
+    f.loc[(f["depth_rank"] == 1) & (f["offense_pct_e6"].fillna(0) < 0.40) & f["position"].isin(["RB", "WR", "TE"]), "role_change"] = 1.0
+    return f[["game_id", "player_id", "role_change"]]

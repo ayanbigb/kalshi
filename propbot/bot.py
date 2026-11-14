@@ -147,6 +147,14 @@ def scan(cfg: dict | None = None, client: Kalshi | None = None, refresh: bool = 
     if len(book):
         log(f"  sportsbook anchor: {len(book)} player lines")
     px = price_markets(mk, fut, PropModel(), book, cfg["model"]["book_weight"])
+    # role changes this week (starter out / depth-chart promotion): the projection is stale, skip
+    from . import health
+    hist = frame[~frame["is_future"]].sort_values("kickoff")
+    fut.attrs["share_by_player"] = hist.groupby("player_id")["offense_pct"].apply(lambda s: s.tail(4).mean()).to_dict()
+    rc = health.role_change_flags(fut, raw, current_season())
+    if len(px):
+        px = px.merge(rc, on=["game_id", "player_id"], how="left")
+        px["role_change"] = px["role_change"].fillna(0.0)
     from . import quotes
     quotes.log_snapshot(mk)
     return quotes.add_movement(add_edges(px, cfg))

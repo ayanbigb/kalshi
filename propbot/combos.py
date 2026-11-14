@@ -213,6 +213,8 @@ def candidate_legs(px: pd.DataFrame, cfg: dict, log=print) -> pd.DataFrame:
     # a big model/market gap usually means news the model hasn't seen (injury, role change), not edge
     d = d[(d["p_model"] - d["p_market"]).abs() <= c.get("max_disagreement", cfg["risk"]["max_disagreement"])]
     d = d[~d["stat"].isin(c.get("exclude_stats", []))]
+    if "role_change" in d.columns:  # starter out / depth promotion this week: projection is stale
+        d = d[d["role_change"].fillna(0) < 1]
     yes = d.assign(side="yes", p_leg=d["p_final"], p_mkt=d["p_market"])
     no = d.assign(side="no", p_leg=1 - d["p_final"], p_mkt=1 - d["p_market"])
     if "event" in no.columns and yes_only:
