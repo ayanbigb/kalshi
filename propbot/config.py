@@ -98,7 +98,11 @@ DEFAULTS = {
     },
     "combos": {
         "min_legs": 2, "max_legs": 6,
-        "hold": 0.10,                 # assumed market-maker margin over the correlation-aware fair price
+        # market-maker margin over the correlation-aware fair price, by leg count. Measured on 22 real combos bought
+        # on this account (NFL props only, vs pre-kickoff leg mids): ~+5% at 5-9 legs, ~+27% at 10-13, +72%..+2500%
+        # at 14+. `hold` is used when a leg count is not covered.
+        "hold": 0.06,
+        "hold_by_legs": [[9, 0.06], [13, 0.27], [99, 0.75]],
         "min_roi": 0.10,              # required expected return on a combo at the estimated quote
         "min_combo_p": 0.04,          # ignore lottery tickets below this joint probability
         "min_leg_p": 0.25, "max_leg_p": 0.93,
@@ -109,9 +113,8 @@ DEFAULTS = {
         "rungs_per_ladder": 4, "max_candidates": 70, "beam": 250, "draws": 40000,
         "max_stake_per_combo": 10.0,
         "exclude_stats": [],
-        # Kalshi Help Center: receptions, receiving-yards and rushing-yards ladders can't be added to combos.
-        # Empty this list if that changes; the exchange's own collection list is also checked (require_eligible).
-        "not_combinable_stats": ["rec", "rec_yds", "rush_yds"],
+        # Stats to keep out of combos. The exchange's own collection list is also checked (require_eligible).
+        "not_combinable_stats": [],  # real account combos contain rush yds / rec yds / rec legs, so all are allowed
         "require_eligible": True,
         "max_legs_per_game": 4,       # concentration limits
         "max_legs_per_player": 2,

@@ -93,7 +93,8 @@ Two different questions:
 
 1. **Is the joint probability higher than you would think?** For same-team stacks, yes: correlation is real.
 2. **Is it higher than the price?** The market maker knows about correlation too, so the bot assumes their
-   quote is the correlated fair price + a margin (10% assumed). Correlation alone is not edge; **edge comes only
+   quote is the correlated fair price + a margin. Measured on 22 real combos from this account: about +5% for
+   5–9 legs, about +27% for 10–13, and +72% to +2,500% for 14+ (the bot uses 6% / 27% / 75%). Correlation alone is not edge; **edge comes only
    from legs the model thinks are underpriced**, and in a combo those edges multiply, but so does any shortfall.
 
 The three same-team stacks above are all overs on stars, and the model is below the market on each leg, so they

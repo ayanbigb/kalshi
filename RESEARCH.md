@@ -187,6 +187,16 @@ rate last season), because participation is published after the season and would
 A tie. Better for rush yds, rec, td, pass TDs; worse for pass yds and INTs. Not adopted (picking per stat after
 seeing this would be fitting the test set); the columns are built and shown in `matchup`.
 
+## 2026-11-14: real combo markups (from the connected account, read-only)
+
+22 combos bought on the account consist only of NFL player-prop legs that have pre-kickoff quotes in the
+settled-market cache. Price paid vs the correlation-aware fair value of the legs (copula, leg mids):
+5–9 legs median +5% (−4% to +14%), 10–13 legs about +27%, 14+ legs +72% to +2,500%. Versus the plain product
+of leg prices the median was +34%, because same-game legs are correlated. The combo engine now uses
+`hold_by_legs` 6% / 27% / 75% instead of a flat 10%. The same combos contain 135 rushing-yards, 62
+receiving-yards and 61 receptions legs, so those stats are combinable; `not_combinable_stats` is now empty.
+At the prices paid, the model's median EV was −14% (5–9 legs), −32% (10–13), −50% (14+).
+
 ## What did not work
 
 - **Learned model/market blend** (`propbot/blend.py`). A ridge logistic that starts at the

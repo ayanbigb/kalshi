@@ -262,14 +262,12 @@ def cmd_combo_price(a):
     for p in sorted(rk["pairs"], key=lambda d: -abs(d["rho"])):
         if abs(p["rho"]) >= 0.03:
             print(f"  correlation {p['rho']:+.2f}: P({p['b']} | {p['a']}) = {p['p_b_given_a']:.0%} vs {p['p_b']:.0%} alone")
-    print(f"\nexpected Kalshi quote ~{r['est_price']:.3f} (fair x (1 + {load_config()['combos']['hold']:.0%} hold)); "
+    print(f"\nexpected Kalshi quote ~{r['est_price']:.3f} (fair x (1 + the measured markup for {len(L)} legs)); "
           f"accept at most {r['max_price']:.3f}")
     b = r["bet"]
     verdict = "worth it" if b["ev_per_dollar"] > 0 else "NOT worth it"
     print(f"at that quote: payout {b['payout_x']:.2f}x, EV {b['ev_per_dollar']:+.1%} per $1 -> {verdict}; "
           f"Kelly {b['kelly']:.1%} of bankroll; P(>=1 leg misses) {rk['p_ge1_fail']:.0%}, P(>=2 miss) {rk['p_ge2_fail']:.0%}")
-    if len(L) > 1 and set(L["stat"]) & set(load_config()["combos"].get("not_combinable_stats", [])):
-        print("note: rec / rec yds / rush yds legs may not be allowed in Kalshi combos (Help Center); check the app")
 
 
 def cmd_tune_risk(a):

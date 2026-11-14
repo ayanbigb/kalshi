@@ -289,7 +289,11 @@ class ComboPricer:
 
 def evaluate(p_model: float, p_fair: float, legs: pd.DataFrame, cfg: dict) -> dict:
     c = cfg.get("combos", {})
-    hold = c.get("hold", 0.10)
+    hold = c.get("hold", 0.06)
+    for k_max, h in c.get("hold_by_legs", []):
+        if len(legs) <= k_max:
+            hold = h
+            break
     est = min(0.99, p_fair * (1 + hold))
     cost = est + fee_per_contract(est)
     g, f = _growth(p_model, cost, cfg["risk"]["kelly_fraction"])

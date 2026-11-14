@@ -251,7 +251,7 @@ more legs compound both the edge and the margin.
 - Sportsbook anchor (`propbot/odds.py`) is untested — no key was available when it was written.
 - Weather is not a model input by default (the free forecast quota is shared and sometimes gone);
   it is shown in `matchup` and used for combo context.
-- Combo quotes come from market makers on request; `combos.hold` is an assumption.
+- Combo quotes come from market makers on request; `combos.hold_by_legs` is measured from 22 real combos.
 - The first `market-backtest` on a new machine downloads ~20,000 archived quotes one at a
   time (about 45 minutes, resumable).
 - Pre-game only. No in-play pricing, no first-TD-scorer or longest-reception markets.
