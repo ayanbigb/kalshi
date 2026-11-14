@@ -205,5 +205,5 @@ and the chance of ruin together; past 2× Kelly expected growth is negative even
 - Combo prices (the hold) are assumed. Everything above moves with it; check the real quote every time.
 - The backtest uses the last hourly quote before kickoff and assumes you could trade at it.
 - 465 backtest combos over 27 weeks is a small sample for bets that win 10–35% of the time.
-- Kalshi's combo eligibility changes; the exchange's collection list is read live, the Help Center exclusions
+- Kalshi's combo eligibility changes; the exchange's collection list is read live, extra exclusions
   are a config list.

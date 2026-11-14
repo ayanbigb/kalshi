@@ -234,8 +234,8 @@ simulation of betting the shortlist weekly (expected P&L, P(losing season), max 
 capped at 4 legs per game, 2 per player and |correlation| ≤ 0.85 between any two legs.
 
 **Kalshi rules.** Only markets the combo builder accepts are used: the exchange's own NFL combo collection
-list (yes-only events get no NO legs), minus `combos.not_combinable_stats`, which defaults to receptions,
-receiving yards and rushing yards per the Help Center. Protected (`…PROT`) markets are never used.
+list (yes-only events get no NO legs), minus `combos.not_combinable_stats` (empty by default: real combos on the
+account include rushing-yards, receiving-yards and receptions legs). Protected (`…PROT`) markets are never used.
 Player stats settle on official stats including overtime, which is what nflverse records too.
 
 **The math and the evidence** (edge realization, real-price combo backtest by leg count, 3-vs-5-leg
